@@ -1,0 +1,9 @@
+test/**
+src/**
+.gitignore
+.DS_Store
+*.zip
+*.vsix
+[[]Content_Types].xml
+extension.vsixmanifest
+build.js

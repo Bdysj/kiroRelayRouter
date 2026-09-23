@@ -1,0 +1,59 @@
+# ============================================================================
+# kiroRelayRouter — 运行环境依赖清单 / runtime prerequisite manifest
+#
+# 本仓库是 Java + TypeScript 混合技术栈，代码级依赖由 kiroProxy/pom.xml、
+# kiro-proxy-frontend/package.json 和 kiro-proxy-frontend/pnpm-lock.yaml 锁定。
+# 本文件声明的是它们之外的「宿主环境」依赖，供 scripts/setup.sh 逐项校验。
+#
+# This repository mixes Java and TypeScript. Library-level dependencies are pinned
+# by kiroProxy/pom.xml, kiro-proxy-frontend/package.json and pnpm-lock.yaml.
+# This file declares the host-level prerequisites that sit outside them and is
+# parsed line by line by scripts/setup.sh.
+#
+# 一键安装与校验 / one-shot install and verification:
+#   ./scripts/setup.sh
+#
+# 语法 / Syntax:  <component><operator><version>   例如 / e.g. java>=17
+# 以 # 开头的行和空行会被忽略 / blank lines and lines starting with # are ignored.
+# ============================================================================
+
+# --- 后端构建与运行 / backend build and runtime -----------------------------
+# Spring Boot 3.4.9 的最低要求，pom.xml 里 java.version=17。
+# Minimum for Spring Boot 3.4.9; pom.xml sets java.version=17.
+java>=17
+
+# 仓库自带 Maven Wrapper（distributionType=only-script），首次执行 ./mvnw 会自动
+# 下载 Maven 3.9.10，因此本机不必预装 maven。此行仅声明 wrapper 会拉取的版本。
+# The bundled Maven Wrapper downloads Maven 3.9.10 on first ./mvnw run, so a local
+# maven install is optional. This line records the version the wrapper fetches.
+maven>=3.9.10
+
+# --- 前端构建 / frontend build ----------------------------------------------
+# Vite 8 要求 Node 20.19+ 或 22.12+。Vite 8 requires Node 20.19+ or 22.12+.
+node>=20.19
+
+# pnpm-lock.yaml 为 lockfileVersion 9.0，需要 pnpm 9 以上，推荐 10。
+# pnpm-lock.yaml uses lockfileVersion 9.0, which needs pnpm 9+ (10 recommended).
+pnpm>=9
+
+# --- 中间件 / middleware ----------------------------------------------------
+# 账务与配置的唯一真实来源，Flyway 迁移脚本使用 PostgreSQL 方言。
+# Single source of truth for billing and configuration; Flyway scripts are
+# written against the PostgreSQL dialect.
+postgresql>=14
+
+# 实时余额与请求状态缓存。Real-time balance and request-state cache.
+redis>=6
+
+# 用量结算的异步队列。Asynchronous queue for usage settlement.
+rabbitmq>=3.11
+
+# --- 可选 / optional --------------------------------------------------------
+# 前端浏览器测试使用 Playwright Chromium，由 pnpm 安装，非部署必需。
+# Frontend browser tests use Playwright Chromium, installed via pnpm and not
+# required for deployment:
+#   cd kiro-proxy-frontend && pnpm test:browser:install
+#
+# 对象存储使用 Cloudflare R2（S3 兼容 API），只需凭据，无需本地安装。
+# Object storage uses Cloudflare R2 through its S3-compatible API: credentials
+# only, nothing to install locally.

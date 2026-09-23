@@ -1,0 +1,166 @@
+# ============================================================================
+# kiroRelayRouter — 仓库根忽略规则 / repository-wide ignore rules
+#
+# 原则 / Principles
+#   1. 任何凭据、真实主机地址、数据库导出都不进仓库。
+#      No credentials, real hostnames, or database dumps are ever committed.
+#   2. 构建产物与分发包不进仓库，由 CI 或本地重新生成。
+#      Build outputs and distribution bundles are rebuilt, never committed.
+#   3. 子项目各自的 .gitignore 仍然生效，这里只补充跨项目规则。
+#      Per-project .gitignore files still apply; this file adds shared rules.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# 操作系统与编辑器 / OS and editor noise
+# ---------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# JetBrains / Eclipse / VS Code 本机工作区状态
+.idea/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.sts4-cache/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# ---------------------------------------------------------------------------
+# 凭据与环境变量 / Credentials and environment files
+# 只有 *.example 模板可以提交。Only *.example templates may be committed.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+.dev.env
+.prod.env
+.endpoint.local
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials.json
+service-account*.json
+
+# ---------------------------------------------------------------------------
+# 数据库导出与备份 / Database dumps and backups
+# 导出文件会带上游 API Key 和明文访问 Token，绝对不能公开。
+# Dumps carry upstream API keys and plaintext access tokens. Never publish them.
+# ---------------------------------------------------------------------------
+database-backups/
+*.dump
+*.sql.gz
+*.sql.bak
+*-backup-*.sql
+*_before_*.sql
+
+# ---------------------------------------------------------------------------
+# 日志 / Logs
+# ---------------------------------------------------------------------------
+logs/
+kiroProxyLogs/
+*.log
+*.log.gz
+*.log.[0-9]*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+hs_err_pid*
+replay_pid*
+
+# ---------------------------------------------------------------------------
+# Java / Maven 构建产物 / build output
+# ---------------------------------------------------------------------------
+target/
+!**/src/main/**/target/
+!**/src/test/**/target/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+.mvn/wrapper/maven-wrapper.jar
+.mvn/.gradle-enterprise/
+.mvn/.develocity/
+HELP.md
+
+# ---------------------------------------------------------------------------
+# Node / 前端构建产物 / frontend build output
+# ---------------------------------------------------------------------------
+node_modules/
+.pnpm-store/
+dist/
+dist-ssr/
+.vite/
+.tanstack/
+*.local
+
+# ---------------------------------------------------------------------------
+# 测试运行时产物（测试源码本身保留在仓库内）
+# Test runtime artifacts. The test sources themselves stay in the repository.
+# ---------------------------------------------------------------------------
+coverage/
+.nyc_output/
+**/__screenshots__/
+.vitest-attachments/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+surefire-reports/
+failsafe-reports/
+
+# ---------------------------------------------------------------------------
+# 分发包与压缩包 / Distribution bundles and archives
+# 已打包的 .vsix 与源码压缩包都按需重新构建，不随仓库分发。
+# Packaged .vsix files and source archives are rebuilt on demand.
+# ---------------------------------------------------------------------------
+*.vsix
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.jar
+!.mvn/wrapper/*.properties
+
+# VSIX 解包残留 / leftovers from an unpacked .vsix
+# 方括号在 gitignore 里是字符类，必须转义。Brackets are a character class, escape them.
+\[Content_Types\].xml
+extension.vsixmanifest
+
+# ---------------------------------------------------------------------------
+# 本机保留的上游模板 git 历史（前端基于 shadcn-admin 模板）
+# Local-only upstream template git history (the frontend derives from shadcn-admin)
+# ---------------------------------------------------------------------------
+.git-upstream-shadcn-admin.local/
+
+# ---------------------------------------------------------------------------
+# 临时文件 / Scratch files
+# ---------------------------------------------------------------------------
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+*.rej

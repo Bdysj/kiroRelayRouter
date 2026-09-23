@@ -1,0 +1,8 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+    import: file:.dev.env[.properties]
+
+logging:
+  config: classpath:log4j2-dev.xml

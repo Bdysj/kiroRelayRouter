@@ -1,0 +1,19 @@
+# kiro-relayrouter (Kiro IDE 扩展) / Kiro IDE extension
+
+# build.js 的产物，打包时重新生成 / build.js output, regenerated on packaging
+dist/
+
+# 本机后端地址覆盖文件，供 build.js 注入，不提交
+# Local backend override consumed by build.js. Never committed.
+.endpoint.local
+
+# 打包结果与历史压缩包 / packaged bundles and legacy archives
+*.vsix
+*.zip
+
+# .vsix 解包残留 / leftovers from an unpacked .vsix
+\[Content_Types\].xml
+extension.vsixmanifest
+
+node_modules/
+.DS_Store

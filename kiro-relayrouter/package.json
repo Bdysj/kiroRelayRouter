@@ -1,0 +1,53 @@
+{
+  "name": "kiro-relayrouter",
+  "displayName": "Kiro Relayrouter",
+  "description": "为 Kiro Agent 提供安全、稳定且低延迟的智能模型连接体验 | Secure, stable, low-latency model connectivity for Kiro Agent",
+  "version": "1.6.4",
+  "publisher": "relayrouter",
+  "license": "MIT",
+  "icon": "media/relayrouter-brand.png",
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "categories": ["Machine Learning"],
+  "keywords": ["Kiro", "AI", "Agent", "RelayRouter", "Model Access"],
+  "activationEvents": ["*"],
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node --check src/extension.js && node test/proxy-contract.test.js && node test/stream-forwarding.test.js && node test/token-validation.test.js && node test/panel-login.test.js && node test/connection-recovery.test.js && node test/image-forwarding.test.js",
+    "package": "npm run build && npx @vscode/vsce package --allow-missing-repository"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "kiroRelayRouter",
+          "title": "Kiro RelayRouter",
+          "icon": "media/relayrouter.svg"
+        }
+      ]
+    },
+    "views": {
+      "kiroRelayRouter": [
+        {
+          "type": "webview",
+          "id": "kiroRelayRouter.controlView",
+          "name": "Relayrouter"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "kiroRelayRouter.openControlPanel",
+        "title": "打开控制面板",
+        "category": "Kiro RelayRouter"
+      },
+      {
+        "command": "kiroRelayRouter.configure",
+        "title": "配置访问 Token",
+        "category": "Kiro RelayRouter"
+      }
+    ]
+  }
+}

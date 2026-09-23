@@ -1,0 +1,110 @@
+debug: false
+
+spring:
+  application:
+    name: kiroProxy
+  profiles:
+    default: prod
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/kiroProxy}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:12345678}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: ${DB_POOL_CONNECTION_TIMEOUT:3000}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:3s}
+      timeout: ${REDIS_TIMEOUT:2s}
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
+  port: ${SERVER_PORT:8080}
+  # 应用位于 Nginx/Cloudflare 等反向代理之后时，使用 X-Forwarded-* 还原客户端看到的协议、主机和端口。
+  # 这可以避免通过 HTTPS 打开 Swagger UI 时，生成的接口地址仍然错误地使用 http://。
+  forward-headers-strategy: framework
+
+# RabbitMQ 连接由当前 Profile 对应的环境文件提供。
+spring.rabbitmq:
+  host: ${RABBITMQ_HOST:localhost}
+  port: ${RABBITMQ_PORT:5672}
+  username: ${RABBITMQ_USERNAME:admin}
+  password: ${RABBITMQ_PASSWORD:123456}
+  publisher-confirm-type: correlated
+  publisher-returns: true
+
+kiro:
+  admin:
+    # 生产环境必须通过 KIRO_ADMIN_JWT_SECRET 设置为至少 32 字节的随机值。
+    jwt-secret: ${KIRO_ADMIN_JWT_SECRET:kiro-proxy-dev-jwt-secret-change-me-2026}
+    jwt-expiration: ${KIRO_ADMIN_JWT_EXPIRATION:12h}
+    allowed-origin-patterns: ${KIRO_ADMIN_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}
+  billing:
+    messaging-enabled: ${KIRO_BILLING_MESSAGING_ENABLED:true}
+    default-initial-points: ${KIRO_BILLING_DEFAULT_INITIAL_POINTS:100}
+    request-reserve-points: ${KIRO_BILLING_REQUEST_RESERVE_POINTS:1}
+    low-balance-threshold: ${KIRO_BILLING_LOW_BALANCE_THRESHOLD:0.5}
+    settlement-exchange: ${KIRO_BILLING_SETTLEMENT_EXCHANGE:billing.settlement.exchange}
+    settlement-queue: ${KIRO_BILLING_SETTLEMENT_QUEUE:billing.settlement.queue}
+    settlement-routing-key: ${KIRO_BILLING_SETTLEMENT_ROUTING_KEY:billing.settlement}
+    outbox-delay-ms: ${KIRO_BILLING_OUTBOX_DELAY_MS:1000}
+  relay:
+    connect-timeout: ${RELAY_CONNECT_TIMEOUT:15s}
+    request-timeout: ${RELAY_REQUEST_TIMEOUT:10m}
+    affinity:
+      # 仅真实下游会话生效；管理端协议测试不会创建或读取亲和缓存。
+      idle-ttl: ${RELAY_AFFINITY_IDLE_TTL:60m}
+      maximum-ttl: ${RELAY_AFFINITY_MAXIMUM_TTL:12h}
+      queue-wait: ${RELAY_AFFINITY_QUEUE_WAIT:10s}
+    health:
+      # 后台统一使用 GET /models 检查；用户请求线程不会触发健康探测。
+      interval-ms: ${RELAY_HEALTH_INTERVAL_MS:30000}
+      initial-delay-ms: ${RELAY_HEALTH_INITIAL_DELAY_MS:30000}
+      timeout: ${RELAY_HEALTH_TIMEOUT:8s}
+      parallelism: ${RELAY_HEALTH_PARALLELISM:4}
+    streaming:
+      core-pool-size: ${RELAY_STREAM_CORE_POOL_SIZE:16}
+      max-pool-size: ${RELAY_STREAM_MAX_POOL_SIZE:200}
+      # Direct handoff: scale past the core pool immediately instead of queuing
+      # behind long-running streams. At max capacity, respond with HTTP 503.
+      queue-capacity: ${RELAY_STREAM_QUEUE_CAPACITY:0}
+      async-timeout: ${RELAY_STREAM_ASYNC_TIMEOUT:11m}
+  docs:
+    media-cleanup-delay-ms: ${KIRO_DOCS_MEDIA_CLEANUP_DELAY_MS:60000}
+
+# SpringDoc OpenAPI 配置
+# 默认开启（dev 可用）；prod Profile 在 application-prod.yml 里关掉文档端点，业务接口不受影响。
+springdoc:
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:true}
+    path: /swagger-ui.html        # 友好入口，自动重定向到真正的 UI /swagger-ui/index.html (Req 14.8/16.5)
+    doc-expansion: none           # 默认不展开任何接口组
+    operations-sorter: alpha      # 按字母顺序排序操作
+    tags-sorter: method           # 按方法排序标签
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:true}
+    path: /v3/api-docs            # OpenAPI 运行时文档源 (Req 14.8/16.5)
+  override-with-generic-response: false
+
+# Cloudflare R2 对象存储配置
+cloudflare:
+  r2:
+    endpoint: ${R2_ENDPOINT:}
+    access-key-id: ${R2_ACCESS_KEY_ID:}
+    secret-access-key: ${R2_SECRET_ACCESS_KEY:}
+    bucket: ${R2_BUCKET:}
+    public-base-url: ${R2_PUBLIC_BASE_URL:}
+    region: ${R2_REGION:auto}

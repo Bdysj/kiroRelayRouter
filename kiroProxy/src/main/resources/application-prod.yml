@@ -1,0 +1,17 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+    import: file:.prod.env[.properties]
+
+# 生产环境默认隐藏接口文档：/swagger-ui.html、/swagger-ui/** 与 /v3/api-docs 都不再注册处理器（返回 404）。
+# 这里只关闭 springdoc 自身的文档端点，业务与管理接口的注册和调用完全不受影响。
+# 需要临时排障时，可用 SPRINGDOC_SWAGGER_UI_ENABLED=true / SPRINGDOC_API_DOCS_ENABLED=true 单独放开。
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_SWAGGER_UI_ENABLED:false}
+
+logging:
+  config: classpath:log4j2-prod.xml

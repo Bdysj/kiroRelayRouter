@@ -1,0 +1,48 @@
+HELP.md
+.env
+.dev.env
+.prod.env
+kiroProxyLogs/
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+### 凭据与数据导出 / Credentials and data dumps ###
+# pg_dump 导出里含上游 API Key 与明文访问 Token，禁止提交
+# pg_dump output contains upstream API keys and plaintext access tokens. Never commit.
+database-backups/
+*.sql.gz
+*.dump
+
+### 其他 / Misc ###
+.DS_Store
+*.log
+*.log.gz
