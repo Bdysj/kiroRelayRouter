@@ -492,6 +492,7 @@ The knobs worth tuning:
 | `KIRO_BILLING_REQUEST_RESERVE_POINTS` | `1` | Minimum freeze amount |
 | `KIRO_BILLING_LOW_BALANCE_THRESHOLD` | `0.5` | Below this, with a freeze in flight, new requests are rejected |
 | `SPRINGDOC_SWAGGER_UI_ENABLED` | `false` in prod | Enable only for temporary troubleshooting |
+| `KIRO_FLYWAY_REPAIR_BEFORE_MIGRATE` | `false` | Run `flyway repair` before migrate. Enable temporarily only for a [checksum mismatch](#upgrading-an-existing-database-flyway-checksum-mismatch) |
 
 Each relay additionally carries its own in-database parameters — `priority`, `weight`, `max_concurrency`, `connect_timeout_ms`, `read_timeout_ms`, `failure_threshold`, `protocol_strategy` — maintained on the Relays page of the console.
 
@@ -534,16 +535,56 @@ SPRINGDOC_API_DOCS_ENABLED=false
 
 Also: the seeded admin credential must already be changed; access tokens are plaintext credentials, so tighten access to the database, its backups, and the admin endpoints; never hand an admin token to an end user.
 
-### After a Flyway migration has been edited
+### Upgrading an existing database: Flyway checksum mismatch
 
-`V2__seed_required_data.sql` was rewritten in this repository to remove secrets. If your database already applied the previous V2, Flyway will refuse to start on a checksum mismatch. Two ways out:
+**Fresh deployments are unaffected — skip this section.**
 
-```sql
--- Only when you have confirmed the difference is nothing but sanitised placeholders
-UPDATE flyway_schema_history SET checksum = <new checksum> WHERE version = '2';
+`V2__seed_required_data.sql` was rewritten in this repository to remove secrets. Flyway validates the checksums of already-applied migrations, so a database that **already applied the previous V2** fails to start on the new code:
+
+```
+Caused by: org.flywaydb.core.api.exception.FlywayValidateException: Validate failed
+Migration checksum mismatch for migration version 2
+-> Applied to database : 423783366
+-> Resolved locally    : -2141854881
+Either revert the changes to the migration, or run repair to update the schema history.
 ```
 
-Flyway prints the new value in its own error message (`Resolved locally: ...`). Alternatively run the official `flyway repair`. Fresh deployments are unaffected.
+The remedy is one run of Flyway's official `repair`. It only realigns the checksum recorded in `flyway_schema_history` with the resolved script: **no DDL or DML is replayed and no business data is touched.**
+
+#### Option 1 (recommended): a one-shot flag, no database access needed
+
+Add one environment variable for a single boot:
+
+```bash
+KIRO_FLYWAY_REPAIR_BEFORE_MIGRATE=true
+```
+
+The log will show:
+
+```
+WARN  FlywayRepairConfig - repair before migrate enabled; realigning historical checksums first
+INFO  JdbcTableSchemaHistory - Repairing Schema History table for version 2 (Checksum: -2141854881) ...
+INFO  DbRepair - Successfully repaired schema history table "public"."flyway_schema_history"
+INFO  FlywayRepairConfig - repair done: 1 checksum aligned, 0 marked missing, 0 failed entries removed
+INFO  DbValidate - Successfully validated 5 migrations
+```
+
+**Remove the variable once you see those lines**, so migration validation goes back to protecting you. The flag defaults to off: when it is absent or `false` the bean is not registered at all and Spring Boot runs its ordinary migrate-only strategy, so normal deployments are unaffected.
+
+#### Option 2: straight to the database
+
+With database access, one statement does it:
+
+```sql
+UPDATE flyway_schema_history SET checksum = -2141854881 WHERE version = '2';
+```
+
+`-2141854881` is the checksum of the current `V2__seed_required_data.sql` with LF line endings. **Do not copy that number blindly** — use the value Flyway reports as `Resolved locally:` in the startup error, which is what your own copy of the file actually resolves to.
+
+> Note: in PostgreSQL an `UPDATE` writes the row to the end of the heap under MVCC. A later
+> `SELECT` without `ORDER BY` will therefore show V2 as the last row. That is physical storage
+> order, not a fault. Flyway reads with `ORDER BY installed_rank`, and `installed_rank` is still
+> 2. Add `ORDER BY installed_rank` to see the real order.
 
 ### Scaling out
 
@@ -559,7 +600,7 @@ The tutorial articles in `V2__seed_required_data.sql` include sample screenshots
 https://YOUR-R2-PUBLIC-DOMAIN.example/relayrouter/docs/2026/09/....png
 ```
 
-**Those images will be broken after you deploy, and that is expected.** They were hosted in the original author's own Cloudflare R2 bucket, and neither the bucket nor its public domain is part of this open-source release.
+**Those images will be broken after you deploy, and that is expected.** They were hosted in my own Cloudflare R2 bucket, and neither the bucket nor its public domain is part of this open-source release.
 
 To fix it:
 
@@ -590,22 +631,7 @@ To fix it:
 
 If you do not want the sample tutorials at all, delete those articles in the console. Nothing about relaying or billing depends on them. Leaving the R2 credentials blank also boots fine — only the tutorial image upload endpoints will return 503.
 
----
 
-## Security notes
-
-The repository has been sanitised: the published content contains no real hostnames, API keys, database credentials, or database dumps. The full checklist is in [`SECURITY.md`](./SECURITY.md). When self-hosting, mind the following:
-
-- **The seeded admin credential is a public placeholder.** Change it immediately after deployment.
-- `admin_account.password` and `relay_access_token.token` are both stored **in plaintext** today, as their table comments say. That is a deliberate business trade-off rather than an oversight — evaluate it yourself before running publicly, tighten access to the database and its backups, or move to a hashed scheme.
-- `.env`, `.dev.env`, `.prod.env`, `.env.local`, `.env.production`, and `.endpoint.local` are all git-ignored; the `*.example` templates are what gets committed.
-- `database-backups/` is git-ignored. A `pg_dump` here carries upstream API keys and plaintext access tokens — **never commit or share one**.
-- In production, set `SERVER_ADDRESS` to `127.0.0.1` so only the reverse proxy can reach the app, and terminate TLS properly.
-- `KIRO_ADMIN_ALLOWED_ORIGIN_PATTERNS` should name concrete domains, never a wildcard.
-
-Please report security problems through an issue or privately to the maintainer rather than publishing exploit details.
-
----
 
 ## Open-source notes
 

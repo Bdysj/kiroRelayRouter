@@ -489,6 +489,7 @@ RELAYROUTER_BACKEND_ENDPOINT=https://your-domain.example npm run package
 | `KIRO_BILLING_REQUEST_RESERVE_POINTS` | `1` | 最小冻结积分 |
 | `KIRO_BILLING_LOW_BALANCE_THRESHOLD` | `0.5` | 低余额阈值，低于此值且有在途冻结时拒绝新请求 |
 | `SPRINGDOC_SWAGGER_UI_ENABLED` | prod `false` | 临时排障才打开 |
+| `KIRO_FLYWAY_REPAIR_BEFORE_MIGRATE` | `false` | 启动前跑一次 `flyway repair`。只在[校验和不匹配](#已有数据库升级到脱敏版本flyway-校验和不匹配)时临时开启 |
 
 每个中转站还有自己的库内参数：`priority`、`weight`、`max_concurrency`、`connect_timeout_ms`、`read_timeout_ms`、`failure_threshold`、`protocol_strategy`，在管理后台的中转站管理页维护。
 
@@ -531,16 +532,55 @@ SPRINGDOC_API_DOCS_ENABLED=false
 
 另外：种子管理员口令必须已修改；访问 Token 是明文存储的敏感凭据，数据库、备份和管理接口的访问范围都要收紧；管理 Token 绝不能发给普通用户。
 
-### 修改过 Flyway 迁移脚本之后
+### 已有数据库升级到脱敏版本：Flyway 校验和不匹配
 
-本仓库为了脱敏改写过 `V2__seed_required_data.sql`。如果你的数据库在改动前已经执行过 V2，Flyway 启动时会因校验和不匹配而失败。两种处理方式：
+**全新部署的数据库不受影响，可以跳过这一节。**
 
-```sql
--- 方式一：只在你确认差异只是脱敏占位值时使用
-UPDATE flyway_schema_history SET checksum = <新校验和> WHERE version = '2';
+本仓库为了脱敏改写过 `V2__seed_required_data.sql`。Flyway 会校验已执行迁移的校验和，所以一个**已经跑过旧版 V2** 的数据库在部署新代码时会启动失败：
+
+```
+Caused by: org.flywaydb.core.api.exception.FlywayValidateException: Validate failed
+Migration checksum mismatch for migration version 2
+-> Applied to database : 423783366
+-> Resolved locally    : -2141854881
+Either revert the changes to the migration, or run repair to update the schema history.
 ```
 
-新校验和会在 Flyway 的启动错误信息里直接给出（`Resolved locally: ...`）。或者用官方 `flyway repair`。全新部署的数据库不受影响。
+处理办法是执行一次 Flyway 官方的 `repair`：它只把 `flyway_schema_history` 里记录的校验和重新对齐到当前脚本，**不重放任何 DDL/DML，不触碰业务数据**。
+
+#### 方式一（推荐）：一次性开关，不用连数据库
+
+部署时临时加一个环境变量，启动一次：
+
+```bash
+KIRO_FLYWAY_REPAIR_BEFORE_MIGRATE=true
+```
+
+日志里会看到：
+
+```
+WARN  FlywayRepairConfig - kiro.flyway.repair-before-migrate=true：先执行 flyway repair 对齐历史校验和，再执行 migrate。
+INFO  JdbcTableSchemaHistory - Repairing Schema History table for version 2 (Checksum: -2141854881) ...
+INFO  DbRepair - Successfully repaired schema history table "public"."flyway_schema_history"
+INFO  FlywayRepairConfig - flyway repair 完成: 对齐校验和 1 条, 标记缺失 0 条, 移除失败记录 0 条
+INFO  DbValidate - Successfully validated 5 migrations
+```
+
+**看到上面这几行之后请把变量去掉**，让迁移脚本校验恢复默认保护。这个开关默认关闭（缺省或 `false` 时对应的 bean 根本不注册，走 Spring Boot 默认的直接 migrate），所以常态部署不受影响。
+
+#### 方式二：直接改库
+
+能连数据库时一条 SQL 也可以：
+
+```sql
+UPDATE flyway_schema_history SET checksum = -2141854881 WHERE version = '2';
+```
+
+`-2141854881` 是当前 `V2__seed_required_data.sql`（LF 行尾）的校验和。**不要照抄这个数字**——以 Flyway 启动报错里 `Resolved locally:` 给出的值为准，那是你这份文件真实解析出来的结果。
+
+> 注意：在 PostgreSQL 里 `UPDATE` 会以 MVCC 方式把该行写到堆尾。之后用不带 `ORDER BY` 的
+> `SELECT` 查这张表，V2 会显示在最后一行——这是物理存储顺序，不是故障。Flyway 读取时用的是
+> `ORDER BY installed_rank`，而 `installed_rank` 仍然是 2。想看真实顺序请加 `ORDER BY installed_rank`。
 
 ### 水平扩容
 
@@ -556,7 +596,7 @@ UPDATE flyway_schema_history SET checksum = <新校验和> WHERE version = '2';
 https://YOUR-R2-PUBLIC-DOMAIN.example/relayrouter/docs/2026/09/....png
 ```
 
-**部署之后这些图片一定是裂的，这是预期行为。** 原因是图片托管在原作者自己的 Cloudflare R2 存储桶上，那个桶和它的公共域名不会随仓库一起开源。
+**部署之后这些图片一定是裂的，这是预期行为。** 原因是图片托管在我自己的 Cloudflare R2 存储桶上，那个桶和它的公共域名不会随仓库一起开源。
 
 处理办法：
 
@@ -587,22 +627,7 @@ https://YOUR-R2-PUBLIC-DOMAIN.example/relayrouter/docs/2026/09/....png
 
 如果完全不需要示例教程，直接在管理后台把这些文章删掉即可，不影响任何转发或计费功能。R2 凭据留空也能正常启动，只是教程图片上传接口会返回 503。
 
----
 
-## 安全须知
-
-仓库已经做过脱敏，公开内容里不包含任何真实主机地址、API Key、数据库凭据或数据库导出。详细清单见 [`SECURITY.md`](./SECURITY.md)。自部署时请注意：
-
-- **种子管理员口令是公开占位值**，部署后立刻修改。
-- `admin_account.password` 与 `relay_access_token.token` 目前都是**明文存储**（表注释里有明确说明）。这是当前的业务取舍，不是遗漏——面向公网运营前请自行评估，收紧数据库与备份的访问范围，或改成哈希方案。
-- `.env` / `.dev.env` / `.prod.env` / `.env.local` / `.env.production` / `.endpoint.local` 全部已被 gitignore，`*.example` 模板才是提交的那份。
-- `database-backups/` 已被 gitignore。`pg_dump` 导出里会带上游 API Key 和明文访问 Token，**永远不要提交或分享**。
-- 生产环境把 `SERVER_ADDRESS` 设成 `127.0.0.1`，只让反向代理进来，并配好 HTTPS。
-- `KIRO_ADMIN_ALLOWED_ORIGIN_PATTERNS` 要写成具体域名，不要留通配。
-
-发现安全问题请开 issue 或私下联系维护者，不要直接公开利用细节。
-
----
 
 ## 开源说明
 

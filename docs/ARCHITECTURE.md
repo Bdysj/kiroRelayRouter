@@ -490,7 +490,11 @@ String  kiro:billing:request:{requestId} 状态                              TTL
 
 Flyway 配置 `baseline-on-migrate: true`。
 
-> 本仓库为脱敏改写过 `V2`。已经执行过旧版 V2 的数据库首次启动会报校验和不匹配，处理方式见 [README 的部署要点](../README.md#修改过-flyway-迁移脚本之后)。
+> 本仓库为脱敏改写过 `V2`。已经执行过旧版 V2 的数据库首次启动会报
+> `FlywayValidateException: Migration checksum mismatch for migration version 2`。
+> 用 `KIRO_FLYWAY_REPAIR_BEFORE_MIGRATE=true` 启动一次即可修复（`config/FlywayRepairConfig.java`
+> 会在 migrate 前跑一次官方 `repair`，只对齐校验和、不重放 DDL/DML），完整说明见
+> [README 的部署要点](../README.md#已有数据库升级到脱敏版本flyway-校验和不匹配)。
 
 ---
 

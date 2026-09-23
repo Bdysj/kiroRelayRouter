@@ -493,7 +493,12 @@ String  kiro:billing:request:{requestId} status                           TTL 24
 
 Flyway runs with `baseline-on-migrate: true`.
 
-> `V2` was rewritten in this repository for sanitisation. A database that already applied the old V2 will report a checksum mismatch on first boot; see the [deployment notes](../README.en.md#after-a-flyway-migration-has-been-edited).
+> `V2` was rewritten in this repository for sanitisation. A database that already applied the
+> old V2 reports `FlywayValidateException: Migration checksum mismatch for migration version 2`
+> on first boot. One boot with `KIRO_FLYWAY_REPAIR_BEFORE_MIGRATE=true` fixes it
+> (`config/FlywayRepairConfig.java` runs the official `repair` before migrate, realigning
+> checksums without replaying DDL or DML). See the
+> [deployment notes](../README.en.md#upgrading-an-existing-database-flyway-checksum-mismatch).
 
 ---
 
