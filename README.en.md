@@ -39,7 +39,7 @@ Three sub-projects, clean separation:
 > **Positioning.** This is a complete, runnable architecture sample. It suits small and mid-sized teams who want a reference implementation of a multi-upstream AI gateway with metering and billing: read it, fork it, load-test it. It is not affiliated with Amazon Web Services or Kiro, and it is not their product.
 
 <div align="center">
-  <a href="./docs/video_show.mp4"><b>▶ Demo video</b></a>
+  <video src="https://github.com/user-attachments/assets/342f2e78-18b5-42e3-92b2-e84493708feb" controls muted width="100%"></video>
 </div>
 
 <table>
