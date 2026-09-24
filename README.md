@@ -38,6 +38,10 @@ kiroRelayRouter 就是这个问题的答案。它把多个上游 AI 中转服务
 
 > **定位说明**：这是一个可以直接跑起来的完整架构样本，适合中小团队当成"多上游 AI 网关 + 计量计费"的参考实现来读、来改、来压测。它不隶属于 Amazon Web Services 或 Kiro，也不是它们的产品。
 
+<div align="center">
+  <a href="./docs/video_show.mp4"><b>▶ 演示视频</b></a>
+</div>
+
 <table>
   <tr>
     <td width="50%"><img src="./docs/imgs/Dashboard.png" alt="中转站管理：上游 API、协议策略与健康状态" /></td>
