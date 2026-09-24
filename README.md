@@ -18,7 +18,13 @@
 
 ## 这是什么
 
-kiroRelayRouter 把多个上游 AI 中转服务聚合成一条可调度、可计费、可观测的链路，向 Kiro IDE 暴露成一个"看起来就是官方模型"的入口。
+先说 Kiro。它是 AWS 推出的 AI IDE，基于 VS Code，真正的分量不在代码补全，而在那套 Agent 工作流：spec 把一个需求先拆成需求、设计、任务三份文档再逐条实现；steering 承载团队规范，让约定自动进入每次对话；hooks 把保存文件、执行任务这类动作变成 Agent 的触发器；再通过 MCP 接入外部工具。
+
+这套东西在大型项目上的差别尤其明显。它比"对着一个文件问一句答一句"慢不少 —— 要先读代码、先落设计、再动手 —— 但换来的是一次把事做完整：跨文件的改动不会只改一半，任务清单会被逐项推到底，而不是丢一堆 TODO 让人自己收尾。
+
+于是一个问题很自然地摆在面前：这套 Agent 工具链很值钱，可用哪些模型却是平台定好的。能不能把工具链原样留下，模型换成我们自己的？
+
+kiroRelayRouter 就是这个问题的答案。它把多个上游 AI 中转服务聚合成一条可调度、可计费、可观测的链路，向 Kiro IDE 暴露成一个"看起来就是官方模型"的入口 —— spec、steering、hooks、MCP 全都照常工作，背后跑的是你自己接的模型。
 
 对使用者来说，装一个 Kiro 扩展、粘贴一张访问 Token，就能在 Kiro Agent 里正常选模型、写代码。对运营者来说，后面是一整套多上游路由、协议自适应、积分预扣与最终一致结算的系统。
 
@@ -49,8 +55,118 @@ kiroRelayRouter 把多个上游 AI 中转服务聚合成一条可调度、可计
 
 ---
 
+## 快速安装
+
+跑起来一共三个进程：后端 `kiroProxy`、管理后台、Kiro 扩展。三个中间件（PostgreSQL / Redis / RabbitMQ）用仓库自带的 `docker-compose.yml` 起，一条命令搞定。
+
+### 第 0 步：先确认端口没被占用
+
+**这一步别跳过。** 下面几个端口如果已经被别的程序占着，装完也跑不起来，而报错信息不一定指向端口冲突。
+
+| 端口 | 谁在用 | 被占用会怎样 | 能改吗 |
+| --- | --- | --- | --- |
+| **19801** | Kiro 扩展的本地代理 | 代理起不来，Kiro 里选不到任何模型 | **不能**，扩展里是常量 |
+| 8080 | `kiroProxy` 后端 | 后端启动失败 | 能，`SERVER_PORT` |
+| 5432 | PostgreSQL | 容器起不来 | 能，`DB_PORT` |
+| 6379 | Redis | 容器起不来 | 能，`REDIS_PORT` |
+| 5672 | RabbitMQ | 容器起不来 | 能，`RABBITMQ_PORT` |
+| 15672 | RabbitMQ 管理界面 | 容器起不来 | 能，`RABBITMQ_MANAGEMENT_PORT` |
+| 5173 | 管理后台开发服务器 | 无需处理，Vite 会自动换下一个空闲端口 | 能，`pnpm dev --port` |
+
+**19801 最需要提前确认**：它在扩展源码里是常量，没有任何配置项可以绕开。被非 RelayRouter 的程序占用时，扩展只会抛一个原始的 `EADDRINUSE`，不会提示你去查端口。
+
+检查命令：
+
+```bash
+# macOS
+lsof -nP -sTCP:LISTEN -iTCP:19801 -iTCP:8080 -iTCP:5432 -iTCP:6379 -iTCP:5672 -iTCP:15672
+```
+
+```powershell
+# Windows PowerShell
+Get-NetTCPConnection -State Listen | Where-Object LocalPort -in 19801,8080,5432,6379,5672,15672 |
+  Select-Object LocalPort, OwningProcess, @{n='Process';e={(Get-Process -Id $_.OwningProcess).Name}}
+```
+
+没有任何输出就说明端口都是空的，可以继续。
+
+> **如果输出里已经有 `postgres`、`redis-server`、`beam.smp`（RabbitMQ）**，说明你本机已经装了这三个中间件并在运行。那就**不需要 Docker**：跳过下面的 `docker compose up -d`，直接把 `.dev.env` 指向本机服务即可。
+>
+> 反过来，如果你想用 Docker 起，必须先停掉本机的同名服务（`brew services stop postgresql@16 redis rabbitmq`），否则容器会因为端口被占用而启动失败。两者不能同时监听同一个端口。
+
+### macOS
+
+```bash
+brew install openjdk@17 node pnpm git
+brew install --cask docker   # 装完先打开一次 Docker Desktop
+
+git clone https://github.com/Bdysj/kiroRelayRouter.git
+cd kiroRelayRouter
+
+docker compose up -d     # PostgreSQL + Redis + RabbitMQ
+./scripts/setup.sh       # 校验环境、生成配置、装前后端依赖
+```
+
+### Windows
+
+```powershell
+winget install -e Microsoft.OpenJDK.17 OpenJS.NodeJS.LTS Git.Git Docker.DockerDesktop
+npm install -g pnpm
+# 装完先打开一次 Docker Desktop，等它变成 Running
+
+git clone https://github.com/Bdysj/kiroRelayRouter.git
+cd kiroRelayRouter
+
+docker compose up -d
+```
+
+`setup.sh` 是 bash 脚本，在 **Git Bash** 里跑（随 Git.Git 一起装好了），不要用 PowerShell：
+
+```bash
+bash ./scripts/setup.sh
+```
+
+### 第 2 步：填连接信息
+
+`setup.sh` 已经从模板生成了 `kiroProxy/.dev.env`。`docker-compose.yml` 的默认账号密码是固定的，把下面几行照抄进去就能直接连上：
+
+```bash
+DB_URL=jdbc:postgresql://localhost:5432/kiroProxy
+DB_USERNAME=kiro
+DB_PASSWORD=kiro-local-dev
+
+REDIS_HOST=localhost
+RABBITMQ_USERNAME=kiro
+RABBITMQ_PASSWORD=kiro-local-dev
+
+# 必须换成随机值：openssl rand -hex 32
+KIRO_ADMIN_JWT_SECRET=<random-32-bytes-hex>
+KIRO_ADMIN_ALLOWED_ORIGIN_PATTERNS=http://localhost:*,http://127.0.0.1:*
+```
+
+> 这组账号密码只适用于本地开发。对外部署时请改掉，并按 [安全须知](./SECURITY.md) 逐项过一遍。
+
+### 第 3 步：启动
+
+```bash
+# 后端：Flyway 会自动建表并写入种子数据
+cd kiroProxy && SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
+
+# 管理后台：另开一个终端
+cd kiro-proxy-frontend && pnpm dev
+```
+
+数据库不用手动 `createdb`，compose 里的 `POSTGRES_DB` 已经建好 `kiroProxy` 库。
+
+后台跑起来后**第一件事是改掉种子管理员口令**，详见 [安全须知](./SECURITY.md)。
+
+更细的配置项、生产部署和扩展打包见下面的 [快速开始](#快速开始) 与 [生产部署要点](#生产部署要点)。
+
+---
+
 ## 目录
 
+- [快速安装](#快速安装)
 - [核心特性](#核心特性)
 - [系统架构](#系统架构)
 - [高并发设计](#高并发设计)
@@ -61,7 +177,7 @@ kiroRelayRouter 把多个上游 AI 中转服务聚合成一条可调度、可计
 - [配置参考](#配置参考)
 - [生产部署要点](#生产部署要点)
 - [关于种子数据里的图片](#关于种子数据里的图片)
-- [安全须知](#安全须知)
+- [安全须知](./SECURITY.md)
 - [开源说明](#开源说明)
 
 ---

@@ -18,7 +18,13 @@
 
 ## What this is
 
-kiroRelayRouter aggregates several upstream AI relay providers into one schedulable, meterable, observable path, and exposes it to Kiro IDE as something that simply looks like a first-party model.
+Some background on Kiro first. It is an AI IDE from AWS, built on VS Code, and its real weight is not in code completion but in its agent workflow: specs break a requirement into requirements, design and task documents before implementing them one by one; steering files carry team conventions into every conversation; hooks turn events like saving a file or finishing a task into agent triggers; MCP plugs in external tooling.
+
+The difference shows most on large projects. It is noticeably slower than asking a question about a single open file — it reads the code first, writes the design first, and only then edits — but what you get back is work that is actually finished: cross-file changes do not land half-applied, and task lists get driven to completion instead of leaving a pile of TODOs behind.
+
+Which raises an obvious question. That agent toolchain is genuinely valuable, yet the set of models you may use is decided by the platform. Could we keep the toolchain exactly as it is and bring our own models instead?
+
+kiroRelayRouter is the answer to that question. It aggregates several upstream AI relay providers into one schedulable, meterable, observable path and exposes it to Kiro IDE as something that simply looks like a first-party model — specs, steering, hooks and MCP all keep working, with your own models behind them.
 
 From a user's point of view: install one Kiro extension, paste one access token, then pick a model in Kiro Agent and get on with the work. Behind that token sits multi-upstream routing, protocol adaptation, point pre-authorisation, and eventually-consistent settlement.
 
@@ -49,8 +55,118 @@ Three sub-projects, clean separation:
 
 ---
 
+## Quick install
+
+Three processes run in the end: the `kiroProxy` backend, the admin console, and the Kiro extension. The three middleware services (PostgreSQL / Redis / RabbitMQ) come up from the bundled `docker-compose.yml` in a single command.
+
+### Step 0: make sure these ports are free
+
+**Do not skip this.** If any of these ports is already taken, the stack installs fine and then fails to run, and the error you get does not necessarily point at a port conflict.
+
+| Port | Used by | What happens if it is taken | Configurable |
+| --- | --- | --- | --- |
+| **19801** | Local proxy inside the Kiro extension | The proxy never starts and no model shows up in Kiro | **No**, it is a constant in the extension |
+| 8080 | `kiroProxy` backend | Backend fails to start | Yes, `SERVER_PORT` |
+| 5432 | PostgreSQL | Container fails to start | Yes, `DB_PORT` |
+| 6379 | Redis | Container fails to start | Yes, `REDIS_PORT` |
+| 5672 | RabbitMQ | Container fails to start | Yes, `RABBITMQ_PORT` |
+| 15672 | RabbitMQ management UI | Container fails to start | Yes, `RABBITMQ_MANAGEMENT_PORT` |
+| 5173 | Console dev server | Nothing to do, Vite moves to the next free port | Yes, `pnpm dev --port` |
+
+**19801 is the one to check first.** It is a constant in the extension source with no setting to work around it. When a non-RelayRouter process holds it, the extension surfaces a bare `EADDRINUSE` and never tells you to look at ports.
+
+Check with:
+
+```bash
+# macOS
+lsof -nP -sTCP:LISTEN -iTCP:19801 -iTCP:8080 -iTCP:5432 -iTCP:6379 -iTCP:5672 -iTCP:15672
+```
+
+```powershell
+# Windows PowerShell
+Get-NetTCPConnection -State Listen | Where-Object LocalPort -in 19801,8080,5432,6379,5672,15672 |
+  Select-Object LocalPort, OwningProcess, @{n='Process';e={(Get-Process -Id $_.OwningProcess).Name}}
+```
+
+No output means every port is free and you can continue.
+
+> **If the output already lists `postgres`, `redis-server` or `beam.smp` (RabbitMQ)**, you have those three services installed and running natively. In that case you do **not** need Docker: skip `docker compose up -d` below and point `.dev.env` at your local services instead.
+>
+> Conversely, if you want to use Docker, stop the native services first (`brew services stop postgresql@16 redis rabbitmq`), otherwise the containers fail to bind. Two processes cannot listen on the same port.
+
+### macOS
+
+```bash
+brew install openjdk@17 node pnpm git
+brew install --cask docker   # launch Docker Desktop once after installing
+
+git clone https://github.com/Bdysj/kiroRelayRouter.git
+cd kiroRelayRouter
+
+docker compose up -d     # PostgreSQL + Redis + RabbitMQ
+./scripts/setup.sh       # verify prerequisites, create config, install dependencies
+```
+
+### Windows
+
+```powershell
+winget install -e Microsoft.OpenJDK.17 OpenJS.NodeJS.LTS Git.Git Docker.DockerDesktop
+npm install -g pnpm
+# Launch Docker Desktop once and wait until it reports Running
+
+git clone https://github.com/Bdysj/kiroRelayRouter.git
+cd kiroRelayRouter
+
+docker compose up -d
+```
+
+`setup.sh` is a bash script, so run it in **Git Bash** (installed alongside Git.Git), not PowerShell:
+
+```bash
+bash ./scripts/setup.sh
+```
+
+### Step 2: fill in connection details
+
+`setup.sh` has already created `kiroProxy/.dev.env` from the template. The credentials in `docker-compose.yml` are fixed, so copying these lines in is enough to connect:
+
+```bash
+DB_URL=jdbc:postgresql://localhost:5432/kiroProxy
+DB_USERNAME=kiro
+DB_PASSWORD=kiro-local-dev
+
+REDIS_HOST=localhost
+RABBITMQ_USERNAME=kiro
+RABBITMQ_PASSWORD=kiro-local-dev
+
+# Must be replaced with a random value: openssl rand -hex 32
+KIRO_ADMIN_JWT_SECRET=<random-32-bytes-hex>
+KIRO_ADMIN_ALLOWED_ORIGIN_PATTERNS=http://localhost:*,http://127.0.0.1:*
+```
+
+> These credentials are for local development only. Change them before exposing anything, and work through [Security notes](./SECURITY.md) first.
+
+### Step 3: start
+
+```bash
+# Backend: Flyway migrates the schema and writes seed data on boot
+cd kiroProxy && SPRING_PROFILES_ACTIVE=dev ./mvnw spring-boot:run
+
+# Console: in a second terminal
+cd kiro-proxy-frontend && pnpm dev
+```
+
+No manual `createdb` is needed; `POSTGRES_DB` in the compose file already creates the `kiroProxy` database.
+
+Once the console is up, **change the seeded administrator credential first**. See [Security notes](./SECURITY.md).
+
+For the full configuration surface, production deployment and extension packaging, see [Getting started](#getting-started) and [Production deployment notes](#production-deployment-notes) below.
+
+---
+
 ## Table of contents
 
+- [Quick install](#quick-install)
 - [Core capabilities](#core-capabilities)
 - [Architecture](#architecture)
 - [Concurrency design](#concurrency-design)
@@ -61,7 +177,7 @@ Three sub-projects, clean separation:
 - [Configuration reference](#configuration-reference)
 - [Production deployment notes](#production-deployment-notes)
 - [About the images in the seed data](#about-the-images-in-the-seed-data)
-- [Security notes](#security-notes)
+- [Security notes](./SECURITY.md)
 - [Open-source notes](#open-source-notes)
 
 ---

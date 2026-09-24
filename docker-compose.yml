@@ -1,0 +1,79 @@
+# kiroRelayRouter 的中间件三件套 / the three middleware services.
+#
+# 只负责 PostgreSQL、Redis、RabbitMQ。后端、前端、扩展仍在宿主机上跑，
+# 这样改代码不用重建镜像。
+# This file provisions PostgreSQL, Redis and RabbitMQ only. The backend, console and
+# extension keep running on the host so that editing code needs no image rebuild.
+#
+#   docker compose up -d      启动 / start
+#   docker compose ps         查看状态 / status
+#   docker compose down       停止（保留数据）/ stop, keeping data
+#   docker compose down -v    停止并删除数据 / stop and delete data
+#
+# 端口与 kiroProxy/.env.example 的默认值一一对应，改这里也要改那里。
+# Ports mirror the defaults in kiroProxy/.env.example: change both together.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kiro-postgres
+    restart: unless-stopped
+    environment:
+      # 与 .dev.env 里的 DB_USERNAME / DB_PASSWORD / DB_URL 保持一致。
+      # Keep in sync with DB_USERNAME / DB_PASSWORD / DB_URL in .dev.env.
+      POSTGRES_USER: ${DB_USERNAME:-kiro}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-kiro-local-dev}
+      POSTGRES_DB: kiroProxy
+    ports:
+      - '${DB_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Flyway 在后端启动时立刻建表，所以必须等库真正可连接再放行。
+      # Flyway migrates the moment the backend boots, so gate on real readiness.
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-kiro} -d kiroProxy']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: kiro-redis
+    restart: unless-stopped
+    # 本地开发不设密码；设了的话记得同步 .dev.env 的 REDIS_PASSWORD。
+    # No password locally. If you add one, mirror it in REDIS_PASSWORD.
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: kiro-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-kiro}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-kiro-local-dev}
+    ports:
+      - '${RABBITMQ_PORT:-5672}:5672'
+      # 管理界面 http://127.0.0.1:15672，排查结算队列时很有用。
+      # Management UI at http://127.0.0.1:15672; handy when inspecting the settlement queue.
+      - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672'
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
