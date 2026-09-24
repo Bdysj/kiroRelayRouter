@@ -17,6 +17,12 @@ import {
   type BillingDailyPoint,
   type BillingRecord,
 } from '@/lib/api/admin'
+import {
+  currentLocaleTag,
+  t as translate,
+  useTranslation,
+  type TranslationKey,
+} from '@/lib/i18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -35,6 +41,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ConfigDrawer } from '@/components/config-drawer'
+import { LanguageSwitch } from '@/components/language-switch'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ThemeSwitch } from '@/components/theme-switch'
@@ -70,6 +77,7 @@ const nextDayIso = (value: string) => {
 }
 
 export function BillingPage() {
+  const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('groups')
   const [from, setFrom] = useState(initialFrom)
   const [to, setTo] = useState(() => dateValue(new Date()))
@@ -131,6 +139,7 @@ export function BillingPage() {
     <>
       <Header>
         <div className='ms-auto flex items-center gap-2'>
+          <LanguageSwitch />
           <ThemeSwitch />
           <ConfigDrawer />
         </div>
@@ -138,13 +147,13 @@ export function BillingPage() {
       <Main className='max-w-none'>
         <div className='mb-4 flex flex-wrap items-start justify-between gap-3'>
           <div>
-            <h1 className='text-2xl font-bold tracking-tight'>用量与账单</h1>
-            <p className='text-muted-foreground'>
-              按分组、Token 和模型分析每日调用量与结算数据
-            </p>
+            <h1 className='text-2xl font-bold tracking-tight'>
+              {t('billing.title')}
+            </h1>
+            <p className='text-muted-foreground'>{t('billing.description')}</p>
           </div>
           <div className='flex flex-wrap items-end gap-2'>
-            <Field label='开始日期'>
+            <Field label={t('billing.filter.from')}>
               <Input
                 type='date'
                 value={from}
@@ -154,7 +163,7 @@ export function BillingPage() {
                 }}
               />
             </Field>
-            <Field label='结束日期'>
+            <Field label={t('billing.filter.to')}>
               <Input
                 type='date'
                 value={to}
@@ -164,7 +173,7 @@ export function BillingPage() {
                 }}
               />
             </Field>
-            <Field label='中转站'>
+            <Field label={t('billing.filter.relay')}>
               <NativeSelect
                 value={relayId}
                 onChange={(value) => {
@@ -172,7 +181,7 @@ export function BillingPage() {
                   setPage(1)
                 }}
               >
-                <option value=''>全部中转站</option>
+                <option value=''>{t('billing.filter.allRelays')}</option>
                 {(relays.data ?? []).map((relay) => (
                   <option key={relay.id} value={relay.id}>
                     {relay.name}
@@ -184,7 +193,7 @@ export function BillingPage() {
         </div>
         <div className='mb-4 flex gap-1 border-b'>
           <TabButton active={tab === 'groups'} onClick={() => setTab('groups')}>
-            按分组统计
+            {t('billing.tab.groups')}
           </TabButton>
           <TabButton
             active={tab === 'tokens'}
@@ -194,39 +203,43 @@ export function BillingPage() {
                 setTokenId(String(analytics.data.tokenTotals[0].tokenId))
             }}
           >
-            按 Token 统计
+            {t('billing.tab.tokens')}
           </TabButton>
           <TabButton
             active={tab === 'records'}
             onClick={() => setTab('records')}
           >
-            账单明细
+            {t('billing.tab.records')}
           </TabButton>
         </div>
         <div className='mb-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4'>
           <Metric
-            title='总请求数'
+            title={t('billing.metric.requests')}
             value={formatInt(summary?.requestCount)}
             icon={<Cpu />}
-            detail={`已结算 ${formatInt(summary?.settledCount)}`}
+            detail={t('billing.metric.settled', {
+              count: formatInt(summary?.settledCount),
+            })}
           />
           <Metric
-            title='总 Token 用量'
+            title={t('billing.metric.tokens')}
             value={formatInt(summary?.totalTokens)}
             icon={<Coins />}
-            detail='输入、缓存与输出合计'
+            detail={t('billing.metric.tokensDetail')}
           />
           <Metric
-            title='上游成本'
+            title={t('billing.metric.providerCost')}
             value={`$${money(summary?.providerCostUsd)}`}
             icon={<DollarSign />}
             detail='USD'
           />
           <Metric
-            title='扣除积分'
+            title={t('billing.metric.chargedPoints')}
             value={money(summary?.chargedPoints)}
             icon={<AlertCircle />}
-            detail={`异常 ${formatInt(summary?.exceptionCount)} 笔`}
+            detail={t('billing.metric.exceptions', {
+              count: formatInt(summary?.exceptionCount),
+            })}
           />
         </div>
         {tab === 'groups' && (
@@ -293,6 +306,7 @@ function GroupAnalytics({
   groupId: string
   selectGroup: (id: string) => void
 }) {
+  const { t } = useTranslation()
   const [granularity, setGranularity] = useState<Granularity>('day')
   const selectedGroup = (data?.groupTotals ?? []).find(
     (item) => String(item.groupId) === groupId
@@ -310,11 +324,11 @@ function GroupAnalytics({
       <Card>
         <CardHeader className='flex-row flex-wrap items-center justify-between gap-3'>
           <CardTitle className='text-base'>
-            分组{granularityLabel(granularity)}请求趋势
+            {t(GROUP_TREND_TITLE_KEYS[granularity])}
           </CardTitle>
           <div className='flex flex-wrap items-center gap-2'>
             <NativeSelect value={groupId} onChange={selectGroup} compact>
-              <option value=''>全部分组</option>
+              <option value=''>{t('billing.filter.allGroups')}</option>
               {(data?.groupTotals ?? []).map((item) => (
                 <option key={item.groupId} value={item.groupId}>
                   {item.groupDisplayName}
@@ -330,18 +344,20 @@ function GroupAnalytics({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className='text-base'>分组统计</CardTitle>
+          <CardTitle className='text-base'>
+            {t('billing.group.totalsTitle')}
+          </CardTitle>
         </CardHeader>
         <CardContent className='overflow-x-auto p-0'>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>分组</TableHead>
-                <TableHead>请求数</TableHead>
-                <TableHead>Token 用量</TableHead>
-                <TableHead>上游成本</TableHead>
-                <TableHead>扣除积分</TableHead>
-                <TableHead>活跃 Token 数</TableHead>
+                <TableHead>{t('billing.table.group')}</TableHead>
+                <TableHead>{t('billing.table.requests')}</TableHead>
+                <TableHead>{t('billing.table.tokens')}</TableHead>
+                <TableHead>{t('billing.table.providerCost')}</TableHead>
+                <TableHead>{t('billing.table.chargedPoints')}</TableHead>
+                <TableHead>{t('billing.table.activeTokens')}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -381,30 +397,34 @@ function GroupAnalytics({
         <div className='grid gap-4 xl:grid-cols-2'>
           <Card>
             <CardHeader>
-              <CardTitle className='text-base'>组内详情</CardTitle>
+              <CardTitle className='text-base'>
+                {t('billing.group.detailTitle')}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className='mb-5 flex items-center gap-2 text-sm'>
-                <span className='text-muted-foreground'>当前分组</span>
+                <span className='text-muted-foreground'>
+                  {t('billing.group.currentGroup')}
+                </span>
                 <Badge variant='secondary'>
                   {selectedGroup?.groupDisplayName ?? '—'}
                 </Badge>
               </div>
               <div className='grid grid-cols-2 gap-y-5 sm:grid-cols-4'>
                 <CompactMetric
-                  label='请求数'
+                  label={t('billing.table.requests')}
                   value={formatInt(selectedGroup?.requestCount)}
                 />
                 <CompactMetric
-                  label='Token 用量'
+                  label={t('billing.table.tokens')}
                   value={formatInt(selectedGroup?.totalTokens)}
                 />
                 <CompactMetric
-                  label='上游成本'
+                  label={t('billing.table.providerCost')}
                   value={`$${money(selectedGroup?.providerCostUsd)}`}
                 />
                 <CompactMetric
-                  label='扣除积分'
+                  label={t('billing.table.chargedPoints')}
                   value={money(selectedGroup?.chargedPoints)}
                 />
               </div>
@@ -412,8 +432,10 @@ function GroupAnalytics({
           </Card>
           <Card>
             <CardHeader className='flex-row items-center justify-between gap-3'>
-              <CardTitle className='text-base'>组内 Token 用量分布</CardTitle>
-              <Badge variant='outline'>Token 用量</Badge>
+              <CardTitle className='text-base'>
+                {t('billing.group.distributionTitle')}
+              </CardTitle>
+              <Badge variant='outline'>{t('billing.table.tokens')}</Badge>
             </CardHeader>
             <CardContent>
               <HorizontalDistribution items={data?.tokenTotals ?? []} />
@@ -421,7 +443,7 @@ function GroupAnalytics({
           </Card>
         </div>
       ) : (
-        <Hint>请在分组统计中选择一个分组，查看组内详情和 Token 用量分布。</Hint>
+        <Hint>{t('billing.group.hint')}</Hint>
       )}
     </div>
   )
@@ -442,6 +464,7 @@ function TokenAnalytics({
   selectGroup: (id: string) => void
   selectToken: (id: string) => void
 }) {
+  const { t } = useTranslation()
   const [granularity, setGranularity] = useState<Granularity>('day')
   const modelSeries = (data?.modelTotals ?? [])
     .slice(0, 8)
@@ -457,16 +480,16 @@ function TokenAnalytics({
         <CardHeader className='flex-row flex-wrap items-start justify-between gap-3'>
           <div>
             <CardTitle className='text-base'>
-              单 Token 各模型{granularityLabel(granularity)} Token 用量
+              {t(TOKEN_CHART_TITLE_KEYS[granularity])}
             </CardTitle>
             <p className='mt-1 text-xs text-muted-foreground'>
-              归档 Token 仍会显示，以保证历史统计完整。
+              {t('billing.token.archivedHint')}
             </p>
           </div>
           <div className='flex flex-wrap items-end gap-2'>
-            <Field label='访问分组' compact>
+            <Field label={t('billing.filter.group')} compact>
               <NativeSelect value={groupId} onChange={selectGroup} compact>
-                <option value=''>全部分组</option>
+                <option value=''>{t('billing.filter.allGroups')}</option>
                 {(data?.groupTotals ?? []).map((item) => (
                   <option key={item.groupId} value={item.groupId}>
                     {item.groupDisplayName}
@@ -476,7 +499,7 @@ function TokenAnalytics({
             </Field>
             <Field label='Token' compact>
               <NativeSelect value={tokenId} onChange={selectToken} compact>
-                <option value=''>选择 Token</option>
+                <option value=''>{t('billing.filter.selectToken')}</option>
                 {(data?.tokenTotals ?? []).map((item) => (
                   <option key={item.tokenId} value={item.tokenId}>
                     {item.tokenLabel} · {item.groupDisplayName}
@@ -498,17 +521,19 @@ function TokenAnalytics({
       <div className='grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]'>
         <Card>
           <CardHeader>
-            <CardTitle className='text-base'>该 Token 调用模型汇总</CardTitle>
+            <CardTitle className='text-base'>
+              {t('billing.token.modelSummaryTitle')}
+            </CardTitle>
           </CardHeader>
           <CardContent className='overflow-x-auto p-0'>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>模型</TableHead>
-                  <TableHead>请求数</TableHead>
-                  <TableHead>Token 用量</TableHead>
-                  <TableHead>上游成本</TableHead>
-                  <TableHead>扣除积分</TableHead>
+                  <TableHead>{t('billing.table.model')}</TableHead>
+                  <TableHead>{t('billing.table.requests')}</TableHead>
+                  <TableHead>{t('billing.table.tokens')}</TableHead>
+                  <TableHead>{t('billing.table.providerCost')}</TableHead>
+                  <TableHead>{t('billing.table.chargedPoints')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -528,8 +553,8 @@ function TokenAnalytics({
                       className='h-24 text-center text-muted-foreground'
                     >
                       {tokenId
-                        ? '该 Token 在当前日期范围内没有用量'
-                        : '请选择 Token'}
+                        ? t('billing.token.noUsage')
+                        : t('billing.token.pickToken')}
                     </TableCell>
                   </TableRow>
                 )}
@@ -540,7 +565,7 @@ function TokenAnalytics({
         <Card>
           <CardHeader>
             <CardTitle className='text-base'>
-              模型占比（按 Token 用量）
+              {t('billing.token.shareTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -554,8 +579,20 @@ function TokenAnalytics({
 
 type Granularity = 'day' | 'week' | 'month'
 
-function granularityLabel(value: Granularity) {
-  return { day: '每日', week: '每周', month: '每月' }[value]
+const GRANULARITY_LABEL_KEYS: Record<Granularity, TranslationKey> = {
+  day: 'billing.granularity.day',
+  week: 'billing.granularity.week',
+  month: 'billing.granularity.month',
+}
+const GROUP_TREND_TITLE_KEYS: Record<Granularity, TranslationKey> = {
+  day: 'billing.group.trendTitle.day',
+  week: 'billing.group.trendTitle.week',
+  month: 'billing.group.trendTitle.month',
+}
+const TOKEN_CHART_TITLE_KEYS: Record<Granularity, TranslationKey> = {
+  day: 'billing.token.chartTitle.day',
+  week: 'billing.token.chartTitle.week',
+  month: 'billing.token.chartTitle.month',
 }
 
 function GranularitySwitch({
@@ -565,15 +602,10 @@ function GranularitySwitch({
   value: Granularity
   onChange: (value: Granularity) => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className='flex h-9 items-center rounded-md bg-muted p-1'>
-      {(
-        [
-          ['day', '日'],
-          ['week', '周'],
-          ['month', '月'],
-        ] as const
-      ).map(([key, label]) => (
+      {(['day', 'week', 'month'] as const).map((key) => (
         <button
           key={key}
           type='button'
@@ -581,7 +613,7 @@ function GranularitySwitch({
           aria-pressed={value === key}
           onClick={() => onChange(key)}
         >
-          {label}
+          {t(GRANULARITY_LABEL_KEYS[key])}
         </button>
       ))}
     </div>
@@ -599,7 +631,7 @@ function bucketDay(day: string, granularity: Granularity) {
 
 function bucketLabel(day: string, granularity: Granularity) {
   if (granularity === 'month') return day
-  return `${day.slice(5)}${granularity === 'week' ? ' 周' : ''}`
+  return `${day.slice(5)}${granularity === 'week' ? translate('billing.chart.weekSuffix') : ''}`
 }
 
 function aggregateTrend(
@@ -639,6 +671,7 @@ export function SmoothAreaChart({
 }: {
   points: { day: string; label: string; value: number }[]
 }) {
+  const { t } = useTranslation()
   if (!points.length) return <EmptyChart />
   const max = Math.max(1, ...points.map((point) => point.value))
   const x = (index: number) =>
@@ -656,7 +689,7 @@ export function SmoothAreaChart({
       viewBox='0 0 800 225'
       className='h-64 w-full min-w-[640px]'
       role='img'
-      aria-label='分组请求趋势图'
+      aria-label={t('billing.chart.groupTrendAria')}
     >
       <defs>
         <linearGradient id='billing-area' x1='0' x2='0' y1='0' y2='1'>
@@ -737,6 +770,7 @@ export function StackedBarChart({
   series: { key: string; label: string; color: string }[]
   granularity: Granularity
 }) {
+  const { t } = useTranslation()
   if (!points.length || !series.length) return <EmptyChart />
   const buckets = new Map<string, Map<string, number>>()
   points.forEach((point) => {
@@ -778,7 +812,7 @@ export function StackedBarChart({
           viewBox='0 0 800 225'
           className='h-64 w-full min-w-[640px]'
           role='img'
-          aria-label='各模型 Token 用量堆叠柱状图'
+          aria-label={t('billing.chart.modelStackAria')}
         >
           {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
             <g key={ratio}>
@@ -855,6 +889,7 @@ export function DonutChart({
 }: {
   items: BillingAnalytics['modelTotals']
 }) {
+  const { t } = useTranslation()
   const total = items.reduce((sum, item) => sum + item.totalTokens, 0)
   if (!items.length || !total) return <EmptyChart compact />
   const stops = items.reduce<{ values: string[]; offset: number }>(
@@ -876,11 +911,15 @@ export function DonutChart({
         className='relative size-44 shrink-0 rounded-full'
         style={{ background: `conic-gradient(${stops.join(',')})` }}
         role='img'
-        aria-label={`模型 Token 用量占比，总计 ${formatInt(total)}`}
+        aria-label={t('billing.chart.modelShareAria', {
+          total: formatInt(total),
+        })}
       >
         <div className='absolute inset-7 flex flex-col items-center justify-center rounded-full bg-card shadow-inner'>
           <strong className='text-lg'>{formatInt(total)}</strong>
-          <span className='text-xs text-muted-foreground'>总 Token</span>
+          <span className='text-xs text-muted-foreground'>
+            {t('billing.chart.totalTokens')}
+          </span>
         </div>
       </div>
       <div className='min-w-48 space-y-3'>
@@ -955,11 +994,12 @@ function CompactMetric({ label, value }: { label: string; value: string }) {
 }
 
 function EmptyChart({ compact = false }: { compact?: boolean }) {
+  const { t } = useTranslation()
   return (
     <div
       className={`flex items-center justify-center text-sm text-muted-foreground ${compact ? 'h-44' : 'h-64'}`}
     >
-      当前筛选条件下暂无趋势数据
+      {t('billing.chart.empty')}
     </div>
   )
 }
@@ -975,6 +1015,7 @@ export function LineChart({
   seriesKey: 'groupId' | 'tokenId' | 'modelId'
   valueKey: 'requestCount' | 'totalTokens'
 }) {
+  const { t } = useTranslation()
   const days = [...new Set(points.map((point) => point.day))].sort()
   const lookup = new Map(
     points.map((point) => [
@@ -995,7 +1036,7 @@ export function LineChart({
   if (!points.length || !series.length)
     return (
       <div className='flex h-64 items-center justify-center text-sm text-muted-foreground'>
-        当前筛选条件下暂无趋势数据
+        {t('billing.chart.empty')}
       </div>
     )
   return (
@@ -1016,7 +1057,7 @@ export function LineChart({
           viewBox='0 0 800 250'
           className='h-64 w-full min-w-[640px]'
           role='img'
-          aria-label='每日用量趋势图'
+          aria-label={t('billing.chart.dailyTrendAria')}
         >
           {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
             <g key={ratio}>
@@ -1101,13 +1142,18 @@ export function LineChart({
 }
 
 export function Sparkline({ values }: { values: number[] }) {
+  const { t } = useTranslation()
   const max = Math.max(1, ...values)
   const coordinates = values.map((value, index) => {
     const x = values.length <= 1 ? 40 : (index * 80) / (values.length - 1)
     return { x, y: 24 - (value / max) * 20, value }
   })
   return values.length ? (
-    <svg viewBox='0 0 80 28' className='h-8 w-24' aria-label='每日请求趋势'>
+    <svg
+      viewBox='0 0 80 28'
+      className='h-8 w-24'
+      aria-label={t('billing.chart.dailyRequestsAria')}
+    >
       <polyline
         fill='none'
         stroke='#2563eb'
@@ -1155,14 +1201,17 @@ function Records({
   totalPages: number
   setPage: (value: number) => void
 }) {
+  const { t } = useTranslation()
   return (
     <Card>
       <CardHeader className='gap-3 lg:flex-row lg:items-end lg:justify-between'>
-        <CardTitle className='text-base'>请求流水</CardTitle>
+        <CardTitle className='text-base'>
+          {t('billing.records.title')}
+        </CardTitle>
         <div className='flex flex-wrap items-end gap-2'>
-          <Field label='模型'>
+          <Field label={t('billing.filter.model')}>
             <NativeSelect value={modelId} onChange={setModelId}>
-              <option value=''>全部模型</option>
+              <option value=''>{t('billing.filter.allModels')}</option>
               {models.map((model) => (
                 <option key={model.modelId} value={model.modelId}>
                   {model.displayName}
@@ -1170,9 +1219,9 @@ function Records({
               ))}
             </NativeSelect>
           </Field>
-          <Field label='结算状态'>
+          <Field label={t('billing.filter.status')}>
             <NativeSelect value={status} onChange={setStatus}>
-              <option value=''>全部状态</option>
+              <option value=''>{t('billing.filter.allStatuses')}</option>
               {[
                 'SETTLED',
                 'PENDING',
@@ -1190,7 +1239,7 @@ function Records({
             <Search className='absolute top-2.5 left-3 size-4 text-muted-foreground' />
             <Input
               className='pl-9'
-              placeholder='请求 ID / Token 名称'
+              placeholder={t('billing.filter.keywordPlaceholder')}
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
             />
@@ -1204,14 +1253,14 @@ function Records({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>时间 / 请求</TableHead>
-              <TableHead>Token</TableHead>
-              <TableHead>模型</TableHead>
-              <TableHead>中转站</TableHead>
-              <TableHead>Token 明细</TableHead>
-              <TableHead>上游成本</TableHead>
-              <TableHead>扣除积分</TableHead>
-              <TableHead>状态</TableHead>
+              <TableHead>{t('billing.table.timeRequest')}</TableHead>
+              <TableHead>{t('billing.table.token')}</TableHead>
+              <TableHead>{t('billing.table.model')}</TableHead>
+              <TableHead>{t('billing.table.relay')}</TableHead>
+              <TableHead>{t('billing.table.tokenBreakdown')}</TableHead>
+              <TableHead>{t('billing.table.providerCost')}</TableHead>
+              <TableHead>{t('billing.table.chargedPoints')}</TableHead>
+              <TableHead>{t('billing.table.status')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1227,7 +1276,7 @@ function Records({
                   colSpan={8}
                   className='h-32 text-center text-destructive'
                 >
-                  账单数据加载失败，请稍后重试
+                  {t('billing.records.loadFailed')}
                 </TableCell>
               </TableRow>
             ) : report.data?.items.length ? (
@@ -1240,7 +1289,7 @@ function Records({
                   colSpan={8}
                   className='h-32 text-center text-muted-foreground'
                 >
-                  当前筛选条件下暂无用量记录
+                  {t('billing.records.empty')}
                 </TableCell>
               </TableRow>
             )}
@@ -1249,7 +1298,9 @@ function Records({
       </CardContent>
       <div className='flex items-center justify-between border-t px-4 py-3 text-sm'>
         <span className='text-muted-foreground'>
-          共 {formatInt(report.data?.total)} 条
+          {t('billing.records.total', {
+            count: formatInt(report.data?.total),
+          })}
         </span>
         <div className='flex items-center gap-2'>
           <Button
@@ -1258,7 +1309,7 @@ function Records({
             disabled={page <= 1}
             onClick={() => setPage(page - 1)}
           >
-            上一页
+            {t('common.pagination.prev')}
           </Button>
           <span>
             {page} / {totalPages}
@@ -1269,7 +1320,7 @@ function Records({
             disabled={page >= totalPages}
             onClick={() => setPage(page + 1)}
           >
-            下一页
+            {t('common.pagination.next')}
           </Button>
         </div>
       </div>
@@ -1278,10 +1329,11 @@ function Records({
 }
 
 function UsageRow({ record }: { record: BillingRecord }) {
+  const { t, localeTag } = useTranslation()
   return (
     <TableRow>
       <TableCell>
-        <div>{new Date(record.createdAt).toLocaleString()}</div>
+        <div>{new Date(record.createdAt).toLocaleString(localeTag)}</div>
         <div
           className='max-w-48 truncate font-mono text-xs text-muted-foreground'
           title={record.requestId}
@@ -1297,36 +1349,38 @@ function UsageRow({ record }: { record: BillingRecord }) {
       </TableCell>
       <TableCell className='min-w-52 font-mono text-xs'>
         <ModelLine
-          label='请求'
+          label={t('billing.model.requested')}
           value={record.requestedModelId}
-          help='客户端发起请求时携带的原始模型名称，可能是展示名称或别名。'
+          help={t('billing.model.requestedHelp')}
         />
         <ModelLine
-          label='路由计费 ID'
+          label={t('billing.model.billingId')}
           value={record.modelId}
-          help='平台内部标准 Model ID，用于权限判断、路由选择和计费；不是中转站实际接收的模型 ID。'
+          help={t('billing.model.billingIdHelp')}
         />
         <ModelLine
-          label='发送'
+          label={t('billing.model.sent')}
           value={record.upstreamModelId}
-          help='根据所选中转站的模型映射，实际写入上游请求 model 字段的 ID。'
+          help={t('billing.model.sentHelp')}
         />
         <ModelLine
-          label='上报'
+          label={t('billing.model.reported')}
           value={record.reportedModelId}
-          help='从上游响应中读取的模型 ID，仅代表上游自报；平台无法验证其真实使用的底层模型。'
+          help={t('billing.model.reportedHelp')}
           fallback={
-            record.upstreamModelSource === 'UNKNOWN' ? 'UNKNOWN' : '未上报'
+            record.upstreamModelSource === 'UNKNOWN'
+              ? 'UNKNOWN'
+              : t('billing.model.notReported')
           }
         />
       </TableCell>
       <TableCell>
-        <div>{record.relayName ?? '未记录'}</div>
+        <div>{record.relayName ?? t('billing.records.noRelay')}</div>
         <div className='text-xs text-muted-foreground'>
           {record.provider ?? '—'}
         </div>
         <div className='text-xs text-muted-foreground'>
-          {record.protocolCode ?? '协议未记录'}
+          {record.protocolCode ?? t('billing.records.noProtocol')}
         </div>
       </TableCell>
       <TableCell className='text-xs whitespace-nowrap'>
@@ -1364,6 +1418,7 @@ export function ModelLine({
   help?: string
   fallback?: string
 }) {
+  const { t } = useTranslation()
   return (
     <div className='flex items-baseline' title={value ?? fallback}>
       <span className='inline-flex shrink-0 items-center gap-0.5 text-muted-foreground'>
@@ -1374,7 +1429,7 @@ export function ModelLine({
               <button
                 type='button'
                 className='inline-flex rounded-sm align-middle hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none'
-                aria-label={`${label}字段说明`}
+                aria-label={t('billing.model.fieldHelpAria', { label })}
               >
                 <AlertCircle className='size-3' aria-hidden='true' />
               </button>
@@ -1384,7 +1439,7 @@ export function ModelLine({
             </TooltipContent>
           </Tooltip>
         )}
-        ：
+        {t('billing.model.labelSuffix')}
       </span>
       {value ?? fallback}
     </div>
@@ -1503,11 +1558,11 @@ function NativeSelect({
     </select>
   )
 }
-function formatInt(value?: number) {
-  return new Intl.NumberFormat('zh-CN').format(value ?? 0)
+function formatInt(value?: number, localeTag = currentLocaleTag()) {
+  return new Intl.NumberFormat(localeTag).format(value ?? 0)
 }
-function formatCompact(value: number) {
-  return new Intl.NumberFormat('zh-CN', {
+function formatCompact(value: number, localeTag = currentLocaleTag()) {
+  return new Intl.NumberFormat(localeTag, {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(value)
@@ -1515,8 +1570,8 @@ function formatCompact(value: number) {
 function percentage(value: number, total: number) {
   return `${total ? ((value / total) * 100).toFixed(1) : '0.0'}%`
 }
-function money(value?: number) {
-  return Number(value ?? 0).toLocaleString('en-US', {
+function money(value?: number, localeTag = currentLocaleTag()) {
+  return Number(value ?? 0).toLocaleString(localeTag, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 6,
   })

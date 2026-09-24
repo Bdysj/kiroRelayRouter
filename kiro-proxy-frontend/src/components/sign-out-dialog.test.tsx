@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
+import { useI18nStore } from '@/lib/i18n'
 import { SignOutDialog } from './sign-out-dialog'
 
 const navigate = vi.fn()
@@ -26,6 +27,8 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
 describe('SignOutDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // 断言用的是中文文案，显式固定语言。
+    useI18nStore.getState().setLocale('zh')
   })
 
   it('calls auth.reset and navigates to admin login with current location as redirect', async () => {
@@ -48,7 +51,7 @@ describe('SignOutDialog', () => {
       <SignOutDialog open onOpenChange={vi.fn()} />
     )
 
-    await userEvent.click(getByRole('button', { name: /^Cancel$/i }))
+    await userEvent.click(getByRole('button', { name: '取消' }))
 
     expect(reset).not.toHaveBeenCalled()
     expect(navigate).not.toHaveBeenCalled()

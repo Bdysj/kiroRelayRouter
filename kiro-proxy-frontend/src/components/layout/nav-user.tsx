@@ -1,4 +1,5 @@
 import { LogOut } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n'
 import useDialogState from '@/hooks/use-dialog-state'
 import {
   SidebarMenu,
@@ -9,6 +10,7 @@ import { SignOutDialog } from '@/components/sign-out-dialog'
 
 export function NavUser() {
   const [open, setOpen] = useDialogState()
+  const { t } = useTranslation()
 
   return (
     <>
@@ -16,11 +18,11 @@ export function NavUser() {
         <SidebarMenuItem>
           <SidebarMenuButton
             size='lg'
-            tooltip='退出登录'
+            tooltip={t('common.action.signOut')}
             onClick={() => setOpen(true)}
           >
             <LogOut />
-            <span className='font-medium'>退出登录</span>
+            <span className='font-medium'>{t('common.action.signOut')}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>

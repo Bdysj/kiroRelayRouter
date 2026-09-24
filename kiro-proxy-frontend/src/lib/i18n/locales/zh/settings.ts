@@ -1,0 +1,55 @@
+/** 右上角的外观设置抽屉、主题切换与语言切换。 */
+export const settings = {
+  drawer: {
+    trigger: '打开外观设置',
+    title: '外观设置',
+    desc: '调整界面的外观与布局，使其符合你的使用习惯。',
+    resetAll: '全部重置',
+    resetAllAria: '把所有设置恢复为默认值',
+  },
+  theme: {
+    label: '主题',
+    toggle: '切换主题',
+    resetAria: '把主题恢复为默认值',
+    selectAria: '选择主题',
+    describedBy: '可选择跟随系统、浅色或深色模式',
+    system: '跟随系统',
+    light: '浅色',
+    dark: '深色',
+  },
+  sidebar: {
+    label: '侧边栏',
+    resetAria: '把侧边栏样式恢复为默认值',
+    selectAria: '选择侧边栏样式',
+    describedBy: '可选择内嵌、浮动或标准侧边栏布局',
+    inset: '内嵌',
+    floating: '浮动',
+    sidebar: '标准',
+  },
+  layout: {
+    label: '布局',
+    resetAria: '把布局恢复为默认值',
+    selectAria: '选择布局样式',
+    describedBy: '可选择默认展开、仅图标的紧凑模式或全幅布局',
+    default: '默认',
+    compact: '紧凑',
+    full: '全幅',
+  },
+  direction: {
+    label: '文字方向',
+    resetAria: '把文字方向恢复为默认值',
+    selectAria: '选择站点文字方向',
+    describedBy: '可选择从左到右或从右到左的站点方向',
+    ltr: '从左到右',
+    rtl: '从右到左',
+  },
+  language: {
+    label: '语言',
+    toggle: '切换语言',
+    selectAria: '选择界面语言',
+  },
+  radio: {
+    selectAria: '选择{label}',
+    previewAria: '{label} 选项预览',
+  },
+}

@@ -11,8 +11,6 @@ const KIRO_CONFIG = 'codewhisperer.config';
 const ENDPOINT_KEYS = ['krsEndpoints', 'cpsEndpoints'];
 const LOCAL_PORT = 19801;
 // 后端地址是构建期常量：打包时由 build.js 用 RELAYROUTER_BACKEND_ENDPOINT 替换，
-// 未提供时保留本地默认值，因此开源仓库里不包含任何真实服务地址。
-//   本地联调：node build.js
 //   私有部署：RELAYROUTER_BACKEND_ENDPOINT=https://your-domain.example npm run package
 // The backend address is a build-time constant. build.js substitutes it from
 // RELAYROUTER_BACKEND_ENDPOINT at packaging time and falls back to localhost,

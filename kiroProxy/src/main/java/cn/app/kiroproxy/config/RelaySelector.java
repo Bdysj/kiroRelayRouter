@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.LockSupport;
@@ -74,16 +75,34 @@ public class RelaySelector {
 
     /** Capability filtering is deliberately performed before relay priority and weight. */
     public Lease select(String modelId, Set<ProtocolCapability> required, Set<Long> excludedIds) {
-        return selectRoute(modelId, required, Set.of(), excludedIds, null, Duration.ZERO);
+        return selectRoute(modelId, required, Set.of(), excludedIds, null, Duration.ZERO, null);
     }
 
     public Lease selectRoute(String modelId, Set<ProtocolCapability> required, Set<RouteKey> excludedRoutes,
                              Long preferredEndpointId, Duration preferredWait) {
-        return selectRoute(modelId, required, excludedRoutes, Set.of(), preferredEndpointId, preferredWait);
+        return selectRoute(modelId, required, excludedRoutes, Set.of(), preferredEndpointId, preferredWait, null);
+    }
+
+    /**
+     * 带候选过滤的选路，用于表达「软偏好」。
+     *
+     * <p>能力集合（{@code required}）是<b>硬</b>约束：不满足就抛异常拒绝请求。而某些偏好
+     * （比如希望挑一条真的支持推理强度的路由）不能这么做 —— 挑不到时正确的行为是退让，
+     * 不是报错。所以这类条件走 {@code routeFilter}：调用方先带着过滤器试一次，接到
+     * {@link NoRelayAvailableException} 再不带过滤器选一次。
+     *
+     * @param routeFilter 额外的候选筛选条件，{@code null} 表示不筛
+     */
+    public Lease selectRoute(String modelId, Set<ProtocolCapability> required, Set<RouteKey> excludedRoutes,
+                             Long preferredEndpointId, Duration preferredWait,
+                             BiPredicate<RelayEndpoint, RelayProtocol> routeFilter) {
+        return selectRoute(modelId, required, excludedRoutes, Set.of(), preferredEndpointId, preferredWait,
+                routeFilter);
     }
 
     private Lease selectRoute(String modelId, Set<ProtocolCapability> required, Set<RouteKey> excludedRoutes,
-                              Set<Long> excludedIds, Long preferredEndpointId, Duration preferredWait) {
+                              Set<Long> excludedIds, Long preferredEndpointId, Duration preferredWait,
+                              BiPredicate<RelayEndpoint, RelayProtocol> routeFilter) {
         boolean hasModelRelay = snapshot.stream().anyMatch(endpoint -> eligible(endpoint, modelId, excludedIds));
         boolean hasCapableProtocol = snapshot.stream().filter(endpoint -> eligible(endpoint, modelId, excludedIds))
                 .anyMatch(endpoint -> !endpoint.protocolsFor(modelId, required).isEmpty());
@@ -94,6 +113,8 @@ public class RelaySelector {
                         .map(protocol -> new Candidate(endpoint, protocol)))
                 .filter(candidate -> !excludedRoutes.contains(new RouteKey(candidate.endpoint.id(),
                         candidate.protocol.code())))
+                .filter(candidate -> routeFilter == null
+                        || routeFilter.test(candidate.endpoint, candidate.protocol))
                 .sorted(Comparator.comparingInt((Candidate candidate) ->
                                 preferredEndpointId != null && candidate.endpoint.id() == preferredEndpointId ? 0 : 1)
                         .thenComparingInt(candidate -> candidate.protocol.priority())

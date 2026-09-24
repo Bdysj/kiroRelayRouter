@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, type RenderResult } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
 import { getCookie, setCookie } from '@/lib/cookies'
+import { useI18nStore } from '@/lib/i18n'
 import { DirectionProvider } from '@/context/direction-provider'
 import { LayoutProvider } from '@/context/layout-provider'
 import { ThemeProvider } from '@/context/theme-provider'
@@ -41,6 +42,8 @@ describe('ConfigDrawer (integration)', () => {
     vi.clearAllMocks()
 
     clearCookies()
+    // 断言用的是英文文案，显式固定语言，避免受浏览器语言探测影响。
+    useI18nStore.getState().setLocale('en')
 
     document.documentElement.classList.remove('light', 'dark')
     document.documentElement.removeAttribute('dir')

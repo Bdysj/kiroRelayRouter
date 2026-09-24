@@ -81,6 +81,17 @@ public record RelayEndpoint(
         return route == null || route.weightOverride() == null ? weight : route.weightOverride();
     }
 
+    /**
+     * 管理员对这条路由的推理强度裁决，{@code null} 表示自动。
+     *
+     * <p>刻意返回可空的 {@link Boolean} 而不是 boolean：「没表态」和「表态为否」
+     * 在这里是两种不同的语义，压成 boolean 会把前者误当后者。
+     */
+    public Boolean reasoningEnabledFor(String modelId) {
+        ModelRoute route = modelRoutes.get(modelId);
+        return route == null ? null : route.reasoningEnabled();
+    }
+
     /** Model-specific rows replace relay defaults; absence means inheritance. */
     public List<RelayProtocol> protocolsFor(String modelId, Set<ProtocolCapability> required) {
         List<RelayProtocol> configured = modelProtocols.get(modelId);
@@ -103,7 +114,16 @@ public record RelayEndpoint(
                 .toList();
     }
 
-    public record ModelRoute(String upstreamModelId, Integer priorityOverride, Integer weightOverride) {}
+    /**
+     * @param reasoningEnabled 管理员对「这条路由支不支持推理强度」的裁决。
+     *                         {@code null} 表示交给运行期自动学习。
+     */
+    public record ModelRoute(String upstreamModelId, Integer priorityOverride, Integer weightOverride,
+                             Boolean reasoningEnabled) {
+        public ModelRoute(String upstreamModelId, Integer priorityOverride, Integer weightOverride) {
+            this(upstreamModelId, priorityOverride, weightOverride, null);
+        }
+    }
 
     public enum HealthStatus { UNKNOWN, UP, DOWN }
 }

@@ -28,6 +28,7 @@ import {
   type RelayTestModel,
   type ProtocolTestResult,
 } from '@/lib/api/admin'
+import { t as translate, useTranslation, type TranslationKey } from '@/lib/i18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -57,6 +58,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ConfigDrawer } from '@/components/config-drawer'
+import { LanguageSwitch } from '@/components/language-switch'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ThemeSwitch } from '@/components/theme-switch'
@@ -66,10 +68,10 @@ const protocolNames: Record<ProtocolCode, string> = {
   OPENAI_RESPONSES: 'Responses',
   ANTHROPIC_MESSAGES: 'Anthropic Messages',
 }
-const strategyNames: Record<ProtocolStrategy, string> = {
-  AUTO: '自动混合协议',
-  OPENAI_SMART: 'OpenAI 智能协议',
-  ANTHROPIC_SMART: 'Claude 智能协议',
+const strategyNames: Record<ProtocolStrategy, TranslationKey> = {
+  AUTO: 'relays.strategy.auto',
+  OPENAI_SMART: 'relays.strategy.openaiSmart',
+  ANTHROPIC_SMART: 'relays.strategy.anthropicSmart',
 }
 const protocol = (
   code: ProtocolCode,
@@ -137,12 +139,22 @@ const emptyRelay: SaveRelayBody = {
 function waitForProtocolTestPoll(signal: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     if (signal.aborted) {
-      reject(new DOMException('协议测试轮询已取消', 'AbortError'))
+      reject(
+        new DOMException(
+          translate('relays.error.protocolTestCancelled'),
+          'AbortError'
+        )
+      )
       return
     }
     const onAbort = () => {
       window.clearTimeout(timer)
-      reject(new DOMException('协议测试轮询已取消', 'AbortError'))
+      reject(
+        new DOMException(
+          translate('relays.error.protocolTestCancelled'),
+          'AbortError'
+        )
+      )
     }
     const timer = window.setTimeout(() => {
       signal.removeEventListener('abort', onAbort)
@@ -153,6 +165,7 @@ function waitForProtocolTestPoll(signal: AbortSignal) {
 }
 
 export function RelaysPage() {
+  const { t, localeTag } = useTranslation()
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<RelayView | null | undefined>()
   const relays = useQuery({ queryKey: ['admin-relays'], queryFn: listRelays })
@@ -160,7 +173,12 @@ export function RelaysPage() {
   const healthMutation = useMutation({
     mutationFn: checkRelayHealth,
     onSuccess: (result) => {
-      toast.success(`健康检查完成：${result.up}/${result.configured} 可用`)
+      toast.success(
+        t('relays.toast.healthDone', {
+          up: result.up,
+          total: result.configured,
+        })
+      )
       void queryClient.invalidateQueries({ queryKey: ['admin-relays'] })
     },
     onError: showError,
@@ -169,7 +187,9 @@ export function RelaysPage() {
     mutationFn: testRelay,
     onSuccess: (result) => {
       toast[result.up ? 'success' : 'error'](
-        result.up ? `连通正常 · ${result.latencyMs ?? '-'}ms` : '连通测试失败'
+        result.up
+          ? t('relays.toast.testOk', { latency: result.latencyMs ?? '-' })
+          : t('relays.toast.testFailed')
       )
       void queryClient.invalidateQueries({ queryKey: ['admin-relays'] })
     },
@@ -180,6 +200,7 @@ export function RelaysPage() {
     <>
       <Header>
         <div className='ms-auto flex items-center gap-2'>
+          <LanguageSwitch />
           <ThemeSwitch />
           <ConfigDrawer />
         </div>
@@ -187,10 +208,10 @@ export function RelaysPage() {
       <Main>
         <div className='mb-6 flex flex-wrap items-start justify-between gap-3'>
           <div>
-            <h1 className='text-2xl font-bold tracking-tight'>中转站管理</h1>
-            <p className='text-muted-foreground'>
-              管理上游 API、密钥、连接参数和健康状态
-            </p>
+            <h1 className='text-2xl font-bold tracking-tight'>
+              {t('relays.title')}
+            </h1>
+            <p className='text-muted-foreground'>{t('relays.desc')}</p>
           </div>
           <div className='flex gap-2'>
             <Button
@@ -201,10 +222,10 @@ export function RelaysPage() {
               <RefreshCw
                 className={healthMutation.isPending ? 'animate-spin' : ''}
               />
-              健康检查
+              {t('relays.action.healthCheck')}
             </Button>
             <Button onClick={() => setEditing(null)}>
-              <Plus /> 新建中转站
+              <Plus /> {t('relays.action.create')}
             </Button>
           </div>
         </div>
@@ -223,14 +244,16 @@ export function RelaysPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>名称</TableHead>
-                    <TableHead>协议策略</TableHead>
-                    <TableHead>API 地址</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>模型</TableHead>
-                    <TableHead>最近检查</TableHead>
-                    <TableHead>最近成功</TableHead>
-                    <TableHead className='text-right'>操作</TableHead>
+                    <TableHead>{t('relays.table.name')}</TableHead>
+                    <TableHead>{t('relays.table.strategy')}</TableHead>
+                    <TableHead>{t('relays.table.baseUrl')}</TableHead>
+                    <TableHead>{t('relays.table.status')}</TableHead>
+                    <TableHead>{t('relays.table.models')}</TableHead>
+                    <TableHead>{t('relays.table.lastCheck')}</TableHead>
+                    <TableHead>{t('relays.table.lastSuccess')}</TableHead>
+                    <TableHead className='text-right'>
+                      {t('relays.table.actions')}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -247,14 +270,14 @@ export function RelaysPage() {
                         className='whitespace-nowrap'
                       >
                         <div className='font-medium'>
-                          {strategyNames[relay.protocolStrategy]}
+                          {t(strategyNames[relay.protocolStrategy])}
                         </div>
                         <div className='text-xs text-muted-foreground'>
-                          {
-                            relay.protocols.filter((item) => item.enabled)
-                              .length
-                          }{' '}
-                          个协议
+                          {t('relays.table.protocolCount', {
+                            count: relay.protocols.filter(
+                              (item) => item.enabled
+                            ).length,
+                          })}
                         </div>
                       </TableCell>
                       <TableCell className='max-w-72 truncate'>
@@ -263,16 +286,22 @@ export function RelaysPage() {
                       <TableCell>
                         <HealthBadge relay={relay} />
                       </TableCell>
-                      <TableCell>{relay.modelIds.length} 个</TableCell>
+                      <TableCell>
+                        {t('relays.table.modelCount', {
+                          count: relay.modelIds.length,
+                        })}
+                      </TableCell>
                       <TableCell>
                         {relay.lastHealthCheckAt
-                          ? `${new Date(relay.lastHealthCheckAt).toLocaleString()}${relay.lastHealthLatencyMs == null ? '' : ` · ${relay.lastHealthLatencyMs}ms`}`
-                          : '尚未检查'}
+                          ? `${new Date(relay.lastHealthCheckAt).toLocaleString(localeTag)}${relay.lastHealthLatencyMs == null ? '' : ` · ${relay.lastHealthLatencyMs}ms`}`
+                          : t('common.state.notChecked')}
                       </TableCell>
                       <TableCell>
                         {relay.lastSuccessAt
-                          ? new Date(relay.lastSuccessAt).toLocaleString()
-                          : '尚无'}
+                          ? new Date(relay.lastSuccessAt).toLocaleString(
+                              localeTag
+                            )
+                          : t('common.state.never')}
                       </TableCell>
                       <TableCell>
                         <div className='flex justify-end gap-1'>
@@ -282,14 +311,14 @@ export function RelaysPage() {
                             disabled={testMutation.isPending}
                             onClick={() => testMutation.mutate(relay.id)}
                           >
-                            <Activity /> 测试
+                            <Activity /> {t('common.action.test')}
                           </Button>
                           <Button
                             size='sm'
                             variant='ghost'
                             onClick={() => setEditing(relay)}
                           >
-                            <Pencil /> 编辑
+                            <Pencil /> {t('common.action.edit')}
                           </Button>
                         </div>
                       </TableCell>
@@ -298,7 +327,7 @@ export function RelaysPage() {
                   {relays.data?.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={8} className='h-32 text-center'>
-                        暂无中转站
+                        {t('relays.table.empty')}
                       </TableCell>
                     </TableRow>
                   )}
@@ -323,6 +352,7 @@ function RelayDialog({
   relay: RelayView | null
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [advanced, setAdvanced] = useState(!relay)
   const [form, setForm] = useState<SaveRelayBody>(() =>
@@ -367,7 +397,7 @@ function RelayDialog({
     []
   )
   const handleSaved = () => {
-    toast.success(relay ? '中转站已更新' : '中转站已创建')
+    toast.success(t(relay ? 'relays.toast.updated' : 'relays.toast.created'))
     void queryClient.invalidateQueries({ queryKey: ['admin-relays'] })
     onClose()
   }
@@ -388,7 +418,7 @@ function RelayDialog({
   const deleteMutation = useMutation({
     mutationFn: () => deleteRelay(relay!.id),
     onSuccess: () => {
-      toast.success('中转站及其模型关联已删除')
+      toast.success(t('relays.toast.deleted'))
       void queryClient.invalidateQueries({ queryKey: ['admin-relays'] })
       onClose()
     },
@@ -405,7 +435,7 @@ function RelayDialog({
       fingerprint: string
     }) => {
       const protocol = form.protocols.find((item) => item.code === code)
-      if (!protocol) throw new Error('协议配置不存在')
+      if (!protocol) throw new Error(t('relays.error.protocolMissing'))
       const controller = new AbortController()
       protocolTestAbort.current?.abort()
       protocolTestAbort.current = controller
@@ -421,8 +451,9 @@ function RelayDialog({
           task = await getRelayProtocolDraftTest(task.taskId, controller.signal)
         }
         if (task.status === 'FAILED')
-          throw new Error(task.message ?? '协议测试任务执行失败')
-        if (!task.result) throw new Error('协议测试任务未返回结果')
+          throw new Error(task.message ?? t('relays.error.protocolTestFailed'))
+        if (!task.result)
+          throw new Error(t('relays.error.protocolTestNoResult'))
         return { result: task.result, fingerprint }
       } finally {
         if (protocolTestAbort.current === controller)
@@ -453,7 +484,10 @@ function RelayDialog({
         }))
       toast[result.verified ? 'success' : 'error'](
         result.verified
-          ? `${protocolNames[result.protocol]} 验证通过 · ${result.latencyMs}ms`
+          ? t('relays.toast.protocolVerified', {
+              protocol: protocolNames[result.protocol],
+              latency: result.latencyMs ?? '-',
+            })
           : result.message
       )
     },
@@ -482,10 +516,10 @@ function RelayDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-2xl'>
         <DialogHeader>
-          <DialogTitle>{relay ? '编辑中转站' : '新建中转站'}</DialogTitle>
-          <DialogDescription>
-            API Key 在编辑时留空表示保留原值。
-          </DialogDescription>
+          <DialogTitle>
+            {t(relay ? 'relays.dialog.editTitle' : 'relays.dialog.createTitle')}
+          </DialogTitle>
+          <DialogDescription>{t('relays.dialog.desc')}</DialogDescription>
         </DialogHeader>
         <form
           className='grid gap-4 sm:grid-cols-2'
@@ -494,14 +528,14 @@ function RelayDialog({
             mutation.mutate(form)
           }}
         >
-          <Field label='名称' className='sm:col-span-2'>
+          <Field label={t('relays.dialog.name')} className='sm:col-span-2'>
             <Input
               required
               value={form.name}
               onChange={(e) => update('name', e.target.value)}
             />
           </Field>
-          <Field label='API 基础地址' className='sm:col-span-2'>
+          <Field label={t('relays.dialog.baseUrl')} className='sm:col-span-2'>
             <Input
               required
               type='url'
@@ -511,7 +545,11 @@ function RelayDialog({
             />
           </Field>
           <Field
-            label={`API Key${relay?.apiKeyConfigured ? '（已配置）' : ''}`}
+            label={t(
+              relay?.apiKeyConfigured
+                ? 'relays.dialog.apiKeyConfigured'
+                : 'relays.dialog.apiKey'
+            )}
             className='sm:col-span-2'
           >
             <Input
@@ -525,7 +563,7 @@ function RelayDialog({
               }}
             />
           </Field>
-          <Field label='协议策略' className='sm:col-span-2'>
+          <Field label={t('relays.dialog.strategy')} className='sm:col-span-2'>
             <select
               className='h-10 w-full rounded-md border border-input bg-background px-3 text-sm'
               value={form.protocolStrategy}
@@ -543,25 +581,27 @@ function RelayDialog({
             >
               {Object.entries(strategyNames).map(([value, label]) => (
                 <option key={value} value={value}>
-                  {label}
+                  {t(label)}
                 </option>
               ))}
             </select>
             <p className='mt-2 text-xs text-muted-foreground'>
-              {strategyDescription(form.protocolStrategy)}
+              {t(strategyDescription(form.protocolStrategy))}
             </p>
           </Field>
           {relay && (
             <section className='space-y-3 rounded-lg border p-4 sm:col-span-2'>
               <div className='flex flex-wrap items-center justify-between gap-2'>
                 <div>
-                  <div className='font-medium'>配置协议（测试可选）</div>
+                  <div className='font-medium'>
+                    {t('relays.dialog.protocolSection')}
+                  </div>
                   <div className='mt-1 flex flex-wrap gap-2'>
                     {form.protocols
                       .filter((item) => item.enabled)
                       .map((item) => (
                         <Badge key={item.code} variant='secondary'>
-                          {protocolVerificationLabel(relay, item.code)}{' '}
+                          {t(protocolVerificationLabel(relay, item.code))}{' '}
                           {protocolNames[item.code]}
                         </Badge>
                       ))}
@@ -573,15 +613,24 @@ function RelayDialog({
                   variant='ghost'
                   onClick={() => setAdvanced((value) => !value)}
                 >
-                  <Settings2 /> {advanced ? '收起高级设置' : '高级协议设置'}
+                  <Settings2 />{' '}
+                  {t(
+                    advanced
+                      ? 'relays.dialog.advancedCollapse'
+                      : 'relays.dialog.advancedExpand'
+                  )}
                 </Button>
               </div>
               <p className='text-xs text-muted-foreground'>
-                能力：
-                {enabledCapabilityNames(form.protocols).join(' · ') || '无'}
+                {t('relays.dialog.capabilities', {
+                  list:
+                    enabledCapabilityNames(form.protocols)
+                      .map((key) => t(key))
+                      .join(' · ') || t('common.state.none'),
+                })}
               </p>
               <p className='text-xs leading-relaxed text-muted-foreground'>
-                测试模型自动来自“路由与价格”中已绑定且启用的候选项。
+                {t('relays.dialog.testModelSource')}
               </p>
               {advanced && (
                 <div className='space-y-3 border-t pt-3'>
@@ -661,47 +710,45 @@ function RelayDialog({
             </section>
           )}
           <NumberField
-            label='优先级'
+            label={t('relays.dialog.priority')}
             value={form.priority}
             min={0}
             onChange={(v) => update('priority', v)}
           />
           <NumberField
-            label='权重'
+            label={t('relays.dialog.weight')}
             value={form.weight}
             min={1}
             onChange={(v) => update('weight', v)}
           />
           <NumberField
-            label='失败阈值'
+            label={t('relays.dialog.failureThreshold')}
             value={form.failureThreshold}
             min={1}
             onChange={(v) => update('failureThreshold', v)}
           />
           <NumberField
-            label='最大并发（0 不限制）'
+            label={t('relays.dialog.maxConcurrency')}
             value={form.maxConcurrency}
             min={0}
             onChange={(v) => update('maxConcurrency', v)}
           />
           <NumberField
-            label='连接超时（ms，每个探针）'
+            label={t('relays.dialog.connectTimeout')}
             value={form.connectTimeoutMs}
             min={100}
             max={1800000}
             onChange={(v) => update('connectTimeoutMs', v)}
           />
           <NumberField
-            label='流空闲超时（ms）'
+            label={t('relays.dialog.readTimeout')}
             value={form.readTimeoutMs}
             min={1000}
             max={1800000}
             onChange={(v) => update('readTimeoutMs', v)}
           />
           <p className='text-xs leading-relaxed text-muted-foreground sm:col-span-2'>
-            聊天流在连续无任何 SSE
-            数据时才会超时；协议测试仍对每个探针分别生效。最大 1,800,000ms（30
-            分钟）。
+            {t('relays.dialog.timeoutHint')}
           </p>
           <div className='flex items-center gap-3 sm:col-span-2'>
             <Switch
@@ -709,7 +756,7 @@ function RelayDialog({
               disabled={!relay}
               onCheckedChange={(value) => update('enabled', value)}
             />
-            <Label>启用并参与调度</Label>
+            <Label>{t('relays.dialog.enabled')}</Label>
           </div>
           <DialogFooter className='sm:col-span-2 sm:justify-between'>
             {relay ? (
@@ -721,13 +768,13 @@ function RelayDialog({
                   onClick={() => {
                     if (
                       window.confirm(
-                        `确定永久删除中转站“${relay.name}”吗？关联模型将先自动解绑。`
+                        t('relays.dialog.deleteConfirm', { name: relay.name })
                       )
                     )
                       deleteMutation.mutate()
                   }}
                 >
-                  <Trash2 /> 删除中转站
+                  <Trash2 /> {t('relays.dialog.delete')}
                 </Button>
               </div>
             ) : (
@@ -735,14 +782,14 @@ function RelayDialog({
             )}
             <div className='flex gap-2'>
               <Button type='button' variant='outline' onClick={onClose}>
-                取消
+                {t('common.action.cancel')}
               </Button>
               <Button
                 type='submit'
                 disabled={mutation.isPending || protocolTestMutation.isPending}
               >
                 {mutation.isPending && <Loader2 className='animate-spin' />}{' '}
-                保存
+                {t('common.action.save')}
               </Button>
             </div>
           </DialogFooter>
@@ -797,11 +844,11 @@ function NumberField({
 }
 
 const capabilityFields = [
-  ['textSupported', '文本'],
-  ['imageSupported', '图片'],
-  ['pdfSupported', 'PDF'],
-  ['streamingSupported', 'Streaming'],
-] as const
+  ['textSupported', 'relays.capability.text'],
+  ['imageSupported', 'relays.capability.image'],
+  ['pdfSupported', 'relays.capability.pdf'],
+  ['streamingSupported', 'relays.capability.streaming'],
+] as const satisfies readonly (readonly [string, TranslationKey])[]
 
 function ProtocolEditor({
   value,
@@ -826,6 +873,7 @@ function ProtocolEditor({
   testDisabled: boolean
   testResult?: ProtocolTestResult
 }) {
+  const { t } = useTranslation()
   const connectionStatus = testResult
     ? testResult.connection
       ? 'passed'
@@ -846,7 +894,7 @@ function ProtocolEditor({
           />
           {protocolNames[value.code]}
         </label>
-        <Field label='协议优先级'>
+        <Field label={t('relays.protocol.priority')}>
           <Input
             type='number'
             min={0}
@@ -859,29 +907,26 @@ function ProtocolEditor({
         <Field
           label={
             <span className='inline-flex items-center gap-1.5'>
-              路径覆盖
+              {t('relays.protocol.pathOverride')}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type='button'
-                    aria-label='查看路径覆盖说明'
+                    aria-label={t('relays.protocol.pathOverrideHelpLabel')}
                     className='text-amber-600 hover:text-amber-700'
                   >
                     <CircleAlert className='size-4' />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent className='max-w-80 leading-relaxed'>
-                  仅当上游接口不使用默认路径时填写。这是追加到 API
-                  基础地址后的相对路径，必须以 / 开头；例如基础地址为
-                  https://example.com/v1，填写 /anthropic/messages 后将请求
-                  https://example.com/v1/anthropic/messages。
+                  {t('relays.protocol.pathOverrideHelp')}
                 </TooltipContent>
               </Tooltip>
             </span>
           }
         >
           <Input
-            placeholder='使用默认路径'
+            placeholder={t('relays.protocol.pathOverridePlaceholder')}
             value={value.pathOverride ?? ''}
             onChange={(event) =>
               onChange({
@@ -892,13 +937,13 @@ function ProtocolEditor({
           />
         </Field>
       </div>
-      <Field label='抽样测试模型'>
+      <Field label={t('relays.protocol.testModel')}>
         <select
           className='h-10 w-full rounded-md border border-input bg-background px-3 text-sm'
           value={testModelId}
           onChange={(event) => onTestModelChange(event.target.value)}
         >
-          <option value=''>请选择与当前协议匹配的已挂载模型</option>
+          <option value=''>{t('relays.protocol.testModelPlaceholder')}</option>
           {testModels.map((model) => (
             <option key={model.modelId} value={model.modelId}>
               {model.displayName} · {model.modelId}
@@ -907,7 +952,7 @@ function ProtocolEditor({
         </select>
         {!testModels.length && (
           <p className='mt-1 text-xs text-amber-700'>
-            已挂载模型中没有可用于此协议的模型。自动混合下未知别名需要在路由与价格中配置模型×协议映射。
+            {t('relays.protocol.noEligibleModels')}
           </p>
         )}
       </Field>
@@ -927,18 +972,22 @@ function ProtocolEditor({
                   onChange({ ...value, [key]: checked === true })
                 }
               />
-              {label}
+              {t(label)}
             </label>
           )
         })}
       </div>
       {testResult && (
         <p className='text-xs text-muted-foreground'>
-          <span className='text-emerald-700'>绿色：已通过</span>
+          <span className='text-emerald-700'>
+            {t('relays.protocol.legendPassed')}
+          </span>
           {' · '}
-          <span className='text-red-700'>红色：测试失败</span>
+          <span className='text-red-700'>
+            {t('relays.protocol.legendFailed')}
+          </span>
           {' · '}
-          默认色：本次未专项测试
+          {t('relays.protocol.legendUntested')}
         </p>
       )}
       {onTest && (
@@ -951,22 +1000,27 @@ function ProtocolEditor({
             onClick={onTest}
           >
             {testing && <Loader2 className='animate-spin' />}
-            {testVerified ? '✓ 当前模型抽样通过' : '抽样测试当前模型'}
-            {value.imageSupported || value.pdfSupported
-              ? `（含${value.imageSupported ? '图片' : ''}${value.imageSupported && value.pdfSupported ? '、' : ''}${value.pdfSupported ? 'PDF' : ''}）`
-              : ''}
+            {t(
+              testVerified
+                ? 'relays.protocol.sampleVerified'
+                : 'relays.protocol.sampleTest'
+            )}
+            {value.imageSupported && value.pdfSupported
+              ? t('relays.protocol.sampleIncludesBoth')
+              : value.imageSupported
+                ? t('relays.protocol.sampleIncludesImage')
+                : value.pdfSupported
+                  ? t('relays.protocol.sampleIncludesPdf')
+                  : ''}
           </Button>
           {value.imageSupported && (
             <p className='text-xs leading-relaxed text-muted-foreground'>
-              测试会动态生成内含随机校验码的微型 PNG，OpenAI 协议使用 Base64
-              Data URL，Anthropic 协议转换为原生 Base64
-              source；只有模型正确回读才会通过。
+              {t('relays.protocol.imageHint')}
             </p>
           )}
           {value.pdfSupported && (
             <p className='text-xs leading-relaxed text-muted-foreground'>
-              测试会发送内置微型 PDF，只有模型正确返回 PDF
-              内的随机校验码才会通过。
+              {t('relays.protocol.pdfHint')}
             </p>
           )}
           {testResult && (
@@ -1093,16 +1147,15 @@ function protocolTestFingerprint(
   })
 }
 
-function strategyDescription(strategy: ProtocolStrategy) {
-  if (strategy === 'OPENAI_SMART')
-    return '优先在 Responses 与 Chat Completions 中根据请求能力选择。'
+function strategyDescription(strategy: ProtocolStrategy): TranslationKey {
+  if (strategy === 'OPENAI_SMART') return 'relays.strategy.openaiSmartDesc'
   if (strategy === 'ANTHROPIC_SMART')
-    return '优先使用 Anthropic Messages，Chat Completions 作为兼容路径。'
-  return '按已配置的模型×协议映射优先；未配置时识别 GPT/Claude 模型家族，再按请求能力和协议优先级选择。'
+    return 'relays.strategy.anthropicSmartDesc'
+  return 'relays.strategy.autoDesc'
 }
 
 function enabledCapabilityNames(protocols: SaveRelayProtocol[]) {
-  const labels = new Set<string>()
+  const labels = new Set<TranslationKey>()
   for (const item of protocols.filter((protocol) => protocol.enabled))
     for (const [key, label] of capabilityFields)
       if (item[key]) labels.add(label)
@@ -1126,24 +1179,33 @@ function capabilitySummary(relay: RelayView) {
 function protocolVerificationLabel(
   relay: RelayView | null,
   code: ProtocolCode
-) {
+): TranslationKey {
   const protocol = relay?.protocols.find((item) => item.code === code)
-  if (protocol?.verificationStatus === 'VERIFIED') return '✓ 最近抽样通过'
-  if (protocol?.verificationStatus === 'FAILED') return '✗ 最近抽样失败'
-  return '• 未抽样'
+  if (protocol?.verificationStatus === 'VERIFIED')
+    return 'relays.protocol.verified'
+  if (protocol?.verificationStatus === 'FAILED') return 'relays.protocol.failed'
+  return 'relays.protocol.notSampled'
 }
 
 function HealthBadge({ relay }: { relay: RelayView }) {
-  if (!relay.enabled) return <Badge variant='outline'>已停用</Badge>
+  const { t } = useTranslation()
+  if (!relay.enabled)
+    return <Badge variant='outline'>{t('common.state.disabled')}</Badge>
   if (relay.healthStatus === 'UP')
-    return <Badge className='bg-emerald-600 hover:bg-emerald-600'>正常</Badge>
+    return (
+      <Badge className='bg-emerald-600 hover:bg-emerald-600'>
+        {t('common.state.normal')}
+      </Badge>
+    )
   if (relay.healthStatus === 'DOWN')
-    return <Badge variant='destructive'>异常</Badge>
-  return <Badge variant='secondary'>未知</Badge>
+    return <Badge variant='destructive'>{t('common.state.abnormal')}</Badge>
+  return <Badge variant='secondary'>{t('common.state.unknown')}</Badge>
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : '操作失败'
+  return error instanceof Error
+    ? error.message
+    : translate('relays.error.actionFailed')
 }
 
 function showError(error: unknown) {

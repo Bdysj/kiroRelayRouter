@@ -1,5 +1,6 @@
 package cn.app.kiroproxy.api;
 
+import cn.app.kiroproxy.config.ReasoningAlertRepository;
 import cn.app.kiroproxy.config.RelayHealthService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -10,10 +11,32 @@ import org.springframework.web.server.ResponseStatusException;
 public class RouteAdminController {
     private final ModelAdminService service;
     private final RelayHealthService health;
+    private final ReasoningAlertRepository reasoningAlerts;
 
-    public RouteAdminController(ModelAdminService service, RelayHealthService health) {
+    public RouteAdminController(ModelAdminService service, RelayHealthService health,
+                                ReasoningAlertRepository reasoningAlerts) {
         this.service = service;
         this.health = health;
+        this.reasoningAlerts = reasoningAlerts;
+    }
+
+    /**
+     * 推理强度不生效的路由告警。
+     *
+     * <p>两级严重度刻意分开：{@code REJECTED} 是已确认的事实（上游明确拒绝、已自动降级），
+     * {@code IGNORED} 只是怀疑（请求了中高档位却没产生 reasoning token，也可能是模型自己
+     * 判断不需要思考）。混成一条会让管理员拿着不确定的信号去做确定的配置动作。
+     */
+    @GetMapping("/reasoning-alerts")
+    public java.util.List<ReasoningAlertRepository.AlertView> reasoningAlerts(
+            @RequestParam(value = "openOnly", defaultValue = "true") boolean openOnly) {
+        return reasoningAlerts.list(openOnly);
+    }
+
+    @PostMapping("/reasoning-alerts/{id}/resolve")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void resolveReasoningAlert(@PathVariable long id) {
+        handle(() -> { reasoningAlerts.resolve(id); return null; });
     }
 
     @PutMapping("/{configurationId}/{modelId}")

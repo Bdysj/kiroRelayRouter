@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, type RenderResult } from 'vitest-browser-react'
 import { type Locator, userEvent } from 'vitest/browser'
+import { useI18nStore } from '@/lib/i18n'
 import { UserAuthForm } from './user-auth-form'
 
 const FORM_MESSAGES = {
@@ -60,6 +61,11 @@ vi.mock('@/lib/utils', async (orig) => ({
 }))
 
 describe('UserAuthForm', () => {
+  // 断言用的是中文文案，显式固定语言。
+  beforeEach(() => {
+    useI18nStore.getState().setLocale('zh')
+  })
+
   describe('Rendering without redirectTo', () => {
     let screen: RenderResult
     let usernameInput: Locator

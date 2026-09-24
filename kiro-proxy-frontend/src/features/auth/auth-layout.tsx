@@ -1,4 +1,6 @@
 import { ArrowRightLeft } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n'
+import { LanguageSwitch } from '@/components/language-switch'
 import { ThemeSwitch } from '@/components/theme-switch'
 
 type AuthLayoutProps = {
@@ -6,11 +8,13 @@ type AuthLayoutProps = {
 }
 
 export function AuthLayout({ children }: AuthLayoutProps) {
+  const { t } = useTranslation()
   return (
     <div className='relative min-h-svh overflow-hidden bg-background'>
       <div className='pointer-events-none absolute -top-28 -left-32 size-[28rem] rounded-full bg-indigo-200/45 blur-3xl dark:bg-indigo-950/30' />
       <div className='pointer-events-none absolute -right-40 -bottom-44 size-[38rem] rounded-full bg-blue-200/50 blur-3xl dark:bg-blue-950/30' />
-      <div className='absolute top-5 right-5 z-20 rounded-xl border bg-background/80 p-1 shadow-sm backdrop-blur-sm sm:top-8 sm:right-8'>
+      <div className='absolute top-5 right-5 z-20 flex items-center gap-1 rounded-xl border bg-background/80 p-1 shadow-sm backdrop-blur-sm sm:top-8 sm:right-8'>
+        <LanguageSwitch />
         <ThemeSwitch />
       </div>
 
@@ -20,18 +24,18 @@ export function AuthLayout({ children }: AuthLayoutProps) {
             <ArrowRightLeft className='size-8 stroke-[2.2] sm:size-9 [@media(max-height:760px)]:size-7' />
           </div>
           <h1 className='text-2xl font-bold tracking-tight sm:text-3xl'>
-            kiro Relayrouter
+            {t('nav.appName')}
           </h1>
           <p className='mt-2 text-base font-semibold text-muted-foreground sm:text-lg'>
-            控制管理系统
+            {t('nav.appSubtitle')}
           </p>
           <p className='mt-2 text-sm text-muted-foreground'>
-            让更强大的模型，驱动你的智能世界
+            {t('auth.tagline')}
           </p>
         </div>
         {children}
         <p className='mt-5 text-xs tracking-wide text-muted-foreground sm:mt-6 sm:text-sm [@media(max-height:760px)]:mt-4'>
-          更开放 · 更稳定 · 更强大
+          {t('auth.slogan')}
         </p>
       </main>
     </div>

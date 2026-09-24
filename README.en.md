@@ -32,6 +32,21 @@ Three sub-projects, clean separation:
 
 > **Positioning.** This is a complete, runnable architecture sample. It suits small and mid-sized teams who want a reference implementation of a multi-upstream AI gateway with metering and billing: read it, fork it, load-test it. It is not affiliated with Amazon Web Services or Kiro, and it is not their product.
 
+<table>
+  <tr>
+    <td width="50%"><img src="./docs/imgs/Dashboard.png" alt="Relays: upstream APIs, protocol strategy and health status" /></td>
+    <td width="50%"><img src="./docs/imgs/ModelsSetting.png" alt="Models: official reference pricing and reasoning effort levels" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="./docs/imgs/RoutingMatrix.png" alt="Routing matrix: actual upstream cost and scheduling overrides per Relay × Model route" /></td>
+    <td width="50%"><img src="./docs/imgs/billing.png" alt="Usage and invoices: calls and settlement data by group, token and model" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="./docs/imgs/pluginsMain.png" alt="Kiro extension panel: token sign-in, device binding and credit balance" /></td>
+    <td width="50%"><img src="./docs/imgs/pluginsExample.png" alt="The Kiro extension shown in the IDE extensions panel" /></td>
+  </tr>
+</table>
+
 ---
 
 ## Table of contents
@@ -344,7 +359,7 @@ One product decision is intentional: **a positive balance always allows one more
 | Models | Public model entries, enable toggles, drag-and-drop ordering (the backend renumbers in steps of 10), input/output token ceilings, reference price maintenance |
 | Route matrix & pricing | A `model × relay` matrix that concurrently fetches each upstream's real catalogue to validate bindings; per-cell binding editing (upstream alias, priority/weight override, tiered cost prices), unbinding, and multi-select bulk bind/unbind |
 | Groups & billing | Group CRUD with summary cards; per-model authorisation with billing multipliers; single and batch token issuance with CSV export; plaintext reveal; single and bulk edits to machine-binding ceilings and unbind counts; ACTIVE/DISABLED/REVOKED transitions; archive and guarded hard delete |
-| Points & billing rules | Versioned `1 USD = N points` rule with paginated history and an explanation of the maths, embedding a **sales package profit simulator** (payment, granted points, platform multiplier, upstream package price and quota → projected cost, profit, gross margin, multiplier coverage) |
+| Points & billing rules | Versioned `1 USD = N points` rule with paginated history and an explanation of the maths |
 | Usage & invoices | Date range plus relay filter across three views: by group, by token, and the raw request ledger; request counts, token counts, upstream cost in USD, charged points, settled and anomalous counts; daily curves and model share. Every chart is hand-rolled SVG (smooth area, stacked bar, donut, line, sparkline) with **zero charting-library dependencies** |
 | Tutorial management | Category CRUD; article draft / publish / hide / reorder within a category / delete; a tiptap rich-text editor with image upload to R2 (drafts use an `uploadSessionId` to associate images with an unsaved article) |
 | Public tutorial page | `/` and `/docs` need no authentication, render through DOMPurify, and support anchor navigation with scroll highlighting |

@@ -1,0 +1,68 @@
+/** 积分与计费规则页面的词条。 */
+export const billingRule = {
+  title: '积分与计费规则',
+  description: '管理平台积分的计费规则，统一配置，版本可追溯。',
+  unavailable: '当前计费规则不可用，模型计费请求将被安全拒绝。',
+  toast: {
+    saved: '新的积分计费规则已生效',
+    saveFailed: '计费规则修改失败',
+  },
+  conversion: {
+    title: '基础积分换算',
+    upstreamCost: '上游模型成本',
+    platformPoints: '平台积分',
+    hint1: '该值用于将中转站产生的美元模型成本换算成平台基础积分。',
+    hint2: '最终用户实际扣费仍会乘以该访问分组为所用模型配置的 模型倍率。',
+    editRule: '修改规则',
+  },
+  example: {
+    title: '示例',
+    upstreamCost: '上游成本',
+    basePoints: '基础积分',
+    afterMultiplier: '模型倍率 {multiplier}× 后',
+  },
+  info: {
+    title: '当前规则信息',
+    currentRate: '当前换算',
+    version: '规则版本',
+    status: '当前状态',
+    effectiveFrom: '生效时间',
+    updatedAt: '最后修改时间',
+  },
+  history: {
+    title: '历史版本',
+    show: '查看历史版本',
+    collapse: '收起历史版本',
+    loadFailed: '历史版本加载失败，请稍后重试。',
+    empty: '暂无历史版本',
+    scrollMore: '向下滚动加载更多 · 已加载 {count} 条',
+  },
+  logic: {
+    title: '计算逻辑说明',
+    chargeTitle: '用户积分扣费',
+    upstreamCost: '上游模型成本',
+    baseRate: '基础扣费率',
+    modelMultiplier: '模型倍率',
+    chargedPoints: '扣除积分',
+    profitTitle: '销售利润测算',
+  },
+  dialog: {
+    title: '修改积分计费规则',
+    description: '保存后将创建新版本，历史规则不会被覆盖。',
+    newRate: '新的 Points / USD',
+    current: '当前',
+    next: '修改后',
+    consumptionSpeed: '积分消耗速度',
+    exampleMultiplier: '示例模型倍率 {multiplier}×（$1 成本）',
+    currentPoints: '当前 {points} Points',
+    warning:
+      '新规则只影响保存后开始的新模型请求。已经开始执行的请求，以及历史账单，继续使用请求开始时保存的 points_per_usd 快照，不会根据新规则重新计算。',
+    saveAndConfirm: '保存并确认',
+  },
+  confirm: {
+    title: '计费规则即将修改',
+    description: '该操作会立即影响保存后开始的新请求。',
+    change: '变化',
+    action: '确认生效',
+  },
+}

@@ -27,6 +27,7 @@ import {
   type DocArticle,
   type DocCategory,
 } from '@/lib/api/docs'
+import { t as translate, useTranslation } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -41,6 +42,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { ConfigDrawer } from '@/components/config-drawer'
+import { LanguageSwitch } from '@/components/language-switch'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ThemeSwitch } from '@/components/theme-switch'
@@ -62,6 +64,7 @@ const emptyArticle = (categoryId: number): ArticleInput => ({
 })
 
 export function DocsAdminPage() {
+  const { t } = useTranslation()
   const client = useQueryClient()
   const docs = useQuery({ queryKey: ['admin-docs'], queryFn: getAdminDocs })
   const categories = docs.data?.sections ?? []
@@ -97,7 +100,7 @@ export function DocsAdminPage() {
   const refresh = () => client.invalidateQueries({ queryKey: ['admin-docs'] })
   const saveArticle = useMutation({
     mutationFn: async (status: ArticleInput['status']) => {
-      if (!draft) throw new Error('请先选择文章')
+      if (!draft) throw new Error(t('docsAdmin.error.noArticleSelected'))
       const payload = {
         ...draft,
         status,
@@ -114,10 +117,10 @@ export function DocsAdminPage() {
       void refresh()
       toast.success(
         article.status === 'PUBLISHED'
-          ? '文章已发布'
+          ? t('docsAdmin.toast.articlePublished')
           : selected?.status === 'PUBLISHED'
-            ? '文章已隐藏并保存为草稿'
-            : '草稿已保存'
+            ? t('docsAdmin.toast.articleHidden')
+            : t('docsAdmin.toast.draftSaved')
       )
     },
     onError: (error) => toast.error(message(error)),
@@ -130,7 +133,7 @@ export function DocsAdminPage() {
     onSuccess: () => {
       setCategoryDialog(null)
       void refresh()
-      toast.success('目录已保存')
+      toast.success(t('docsAdmin.toast.categorySaved'))
     },
     onError: (error) => toast.error(message(error)),
   })
@@ -175,16 +178,19 @@ export function DocsAdminPage() {
     <>
       <Header fixed>
         <div>
-          <h1 className='text-base font-semibold'>教程管理</h1>
-          <p className='text-xs text-muted-foreground'>编辑公开教程与目录</p>
+          <h1 className='text-base font-semibold'>{t('docsAdmin.title')}</h1>
+          <p className='text-xs text-muted-foreground'>
+            {t('docsAdmin.description')}
+          </p>
         </div>
         <div className='ml-auto flex items-center gap-2'>
           <Button variant='outline' size='sm' asChild>
             <a href='/docs' target='_blank' rel='noreferrer'>
               <BookOpen />
-              预览教程
+              {t('docsAdmin.previewDocs')}
             </a>
           </Button>
+          <LanguageSwitch />
           <ThemeSwitch />
           <ConfigDrawer />
         </div>
@@ -192,20 +198,22 @@ export function DocsAdminPage() {
       <Main fluid className='flex min-h-0 flex-1 flex-col'>
         <div className='mb-4 flex items-center justify-between'>
           <div>
-            <h2 className='text-2xl font-bold tracking-tight'>内容管理</h2>
+            <h2 className='text-2xl font-bold tracking-tight'>
+              {t('docsAdmin.contentTitle')}
+            </h2>
             <p className='text-sm text-muted-foreground'>
-              仅已启用目录中的已发布文章会公开展示。
+              {t('docsAdmin.contentDescription')}
             </p>
           </div>
           <Button onClick={() => openCategory()}>
             <FolderPlus />
-            新建目录
+            {t('docsAdmin.category.create')}
           </Button>
         </div>
         <div className='grid min-h-[680px] flex-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]'>
           <Card className='gap-0 overflow-hidden py-0'>
             <div className='border-b px-4 py-3 text-sm font-semibold'>
-              教程目录
+              {t('docsAdmin.sidebar.title')}
             </div>
             <div className='max-h-[calc(100svh-210px)] overflow-y-auto p-2'>
               {docs.isLoading && (
@@ -220,7 +228,9 @@ export function DocsAdminPage() {
                       {category.title}
                     </span>
                     <span className='text-[10px] text-muted-foreground'>
-                      {category.enabled ? '已启用' : '草稿'}
+                      {category.enabled
+                        ? t('common.state.enabled')
+                        : t('docsAdmin.status.draft')}
                     </span>
                     <Button
                       variant='ghost'
@@ -251,7 +261,9 @@ export function DocsAdminPage() {
                         >
                           {article.title}
                           <span className='ml-1.5 text-[10px] text-muted-foreground'>
-                            {article.status === 'PUBLISHED' ? '已发布' : '草稿'}
+                            {article.status === 'PUBLISHED'
+                              ? t('docsAdmin.status.published')
+                              : t('docsAdmin.status.draft')}
                           </span>
                         </button>
                         <div className='hidden pr-1 group-hover:flex'>
@@ -281,7 +293,7 @@ export function DocsAdminPage() {
               ))}
               {!docs.isLoading && categories.length === 0 && (
                 <p className='px-3 py-10 text-center text-sm text-muted-foreground'>
-                  先新建一个目录
+                  {t('docsAdmin.sidebar.emptyCategories')}
                 </p>
               )}
             </div>
@@ -289,19 +301,21 @@ export function DocsAdminPage() {
           <Card className='min-w-0 gap-0 overflow-hidden py-0'>
             {!draft ? (
               <div className='flex h-full min-h-[560px] items-center justify-center text-sm text-muted-foreground'>
-                选择文章，或在目录右侧新建内容
+                {t('docsAdmin.article.emptySelection')}
               </div>
             ) : (
               <>
                 <div className='flex flex-wrap items-center gap-2 border-b px-5 py-3'>
                   <div className='mr-auto'>
                     <h3 className='font-semibold'>
-                      {selected ? '编辑教程' : '新建教程'}
+                      {selected
+                        ? t('docsAdmin.article.editTitle')
+                        : t('docsAdmin.article.createTitle')}
                     </h3>
                     <p className='text-xs text-muted-foreground'>
                       {draft.status === 'PUBLISHED'
-                        ? '已发布·可先隐藏修改，完成后再次发布'
-                        : '草稿仅管理员可见，发布后才会公开展示'}
+                        ? t('docsAdmin.article.publishedHint')
+                        : t('docsAdmin.article.draftHint')}
                     </p>
                   </div>
                   {selected && (
@@ -310,20 +324,23 @@ export function DocsAdminPage() {
                       size='sm'
                       className='text-destructive'
                       onClick={async () => {
-                        if (!window.confirm('确定删除这篇教程？')) return
+                        if (
+                          !window.confirm(t('docsAdmin.confirm.deleteArticle'))
+                        )
+                          return
                         try {
                           await deleteDocArticle(selected.id)
                           setSelectedId(null)
                           setDraft(null)
                           await refresh()
-                          toast.success('文章已删除')
+                          toast.success(t('docsAdmin.toast.articleDeleted'))
                         } catch (error) {
                           toast.error(message(error))
                         }
                       }}
                     >
                       <Trash2 />
-                      删除
+                      {t('common.action.delete')}
                     </Button>
                   )}
                   <Button
@@ -333,7 +350,9 @@ export function DocsAdminPage() {
                     onClick={() => saveArticle.mutate('DRAFT')}
                   >
                     {draft.status === 'PUBLISHED' ? <EyeOff /> : <Save />}
-                    {draft.status === 'PUBLISHED' ? '隐藏' : '存草稿'}
+                    {draft.status === 'PUBLISHED'
+                      ? t('docsAdmin.article.hide')
+                      : t('docsAdmin.article.saveDraft')}
                   </Button>
                   <Button
                     size='sm'
@@ -341,21 +360,21 @@ export function DocsAdminPage() {
                     onClick={() => saveArticle.mutate('PUBLISHED')}
                   >
                     <Send />
-                    发布
+                    {t('common.action.publish')}
                   </Button>
                 </div>
                 <div className='space-y-5 p-5'>
                   <div className='grid gap-4 sm:grid-cols-2'>
-                    <Field label='标题'>
+                    <Field label={t('docsAdmin.article.titleLabel')}>
                       <Input
                         value={draft.title}
                         onChange={(event) =>
                           setDraft({ ...draft, title: event.target.value })
                         }
-                        placeholder='例如：Token 登录'
+                        placeholder={t('docsAdmin.article.titlePlaceholder')}
                       />
                     </Field>
-                    <Field label='所属目录'>
+                    <Field label={t('docsAdmin.article.categoryLabel')}>
                       <select
                         className='h-9 w-full rounded-md border bg-transparent px-3 text-sm'
                         value={draft.categoryId}
@@ -373,7 +392,7 @@ export function DocsAdminPage() {
                         ))}
                       </select>
                     </Field>
-                    <Field label='排序'>
+                    <Field label={t('docsAdmin.article.sortOrderLabel')}>
                       <Input
                         type='number'
                         value={draft.sortOrder}
@@ -387,7 +406,9 @@ export function DocsAdminPage() {
                     </Field>
                   </div>
                   <div>
-                    <Label className='mb-2'>正文</Label>
+                    <Label className='mb-2'>
+                      {t('docsAdmin.article.contentLabel')}
+                    </Label>
                     <DocsEditor
                       key={selected?.id ?? `new-${draft.categoryId}`}
                       content={draft.contentHtml}
@@ -400,8 +421,7 @@ export function DocsAdminPage() {
                       }
                     />
                     <p className='mt-2 text-xs text-muted-foreground'>
-                      可点击图片按钮、直接粘贴或将图片拖入编辑器，文件由后端上传至
-                      Cloudflare R2。
+                      {t('docsAdmin.article.uploadHint')}
                     </p>
                   </div>
                 </div>
@@ -419,14 +439,16 @@ export function DocsAdminPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {categoryDialog === 'new' ? '新建目录' : '编辑目录'}
+              {categoryDialog === 'new'
+                ? t('docsAdmin.category.create')
+                : t('docsAdmin.category.edit')}
             </DialogTitle>
             <DialogDescription>
-              目录是教程的一级分组，只有启用后才会在公开端展示。
+              {t('docsAdmin.category.dialogDescription')}
             </DialogDescription>
           </DialogHeader>
           <div className='space-y-4'>
-            <Field label='目录名称'>
+            <Field label={t('docsAdmin.category.nameLabel')}>
               <Input
                 value={categoryDraft.title}
                 onChange={(event) =>
@@ -437,7 +459,7 @@ export function DocsAdminPage() {
                 }
               />
             </Field>
-            <Field label='排序'>
+            <Field label={t('docsAdmin.category.sortOrderLabel')}>
               <Input
                 type='number'
                 value={categoryDraft.sortOrder}
@@ -451,9 +473,9 @@ export function DocsAdminPage() {
             </Field>
             <div className='flex items-center justify-between rounded-lg border p-3'>
               <div>
-                <Label>公开目录</Label>
+                <Label>{t('docsAdmin.category.publicLabel')}</Label>
                 <p className='text-xs text-muted-foreground'>
-                  启用后，已发布文章可公开访问
+                  {t('docsAdmin.category.publicHint')}
                 </p>
               </div>
               <Switch
@@ -471,28 +493,24 @@ export function DocsAdminPage() {
                 className='mr-auto'
                 onClick={async () => {
                   const category = categoryDialog as DocCategory
-                  if (
-                    !window.confirm(
-                      '删除目录将同时删除其中全部教程，是否继续？'
-                    )
-                  )
+                  if (!window.confirm(t('docsAdmin.category.confirmDelete')))
                     return
                   try {
                     await deleteDocCategory(category.id)
                     setCategoryDialog(null)
                     await refresh()
-                    toast.success('目录已删除')
+                    toast.success(t('docsAdmin.toast.categoryDeleted'))
                   } catch (error) {
                     toast.error(message(error))
                   }
                 }}
               >
                 <Trash2 />
-                删除目录
+                {t('docsAdmin.category.delete')}
               </Button>
             )}
             <Button variant='outline' onClick={() => setCategoryDialog(null)}>
-              取消
+              {t('common.action.cancel')}
             </Button>
             <Button
               disabled={categoryMutation.isPending}
@@ -501,7 +519,7 @@ export function DocsAdminPage() {
               {categoryMutation.isPending && (
                 <Loader2 className='animate-spin' />
               )}
-              保存
+              {t('common.action.save')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -547,8 +565,10 @@ function message(error: unknown) {
       response?.data?.message ??
       response?.data?.detail ??
       response?.data?.error ??
-      '操作失败'
+      translate('docsAdmin.error.actionFailed')
     )
   }
-  return error instanceof Error ? error.message : '操作失败'
+  return error instanceof Error
+    ? error.message
+    : translate('docsAdmin.error.actionFailed')
 }

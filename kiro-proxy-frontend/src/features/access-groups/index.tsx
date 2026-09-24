@@ -53,6 +53,12 @@ import {
   type IssuedAccessToken,
   type SaveAccessGroupBody,
 } from '@/lib/api/admin'
+import {
+  currentLocaleTag,
+  t as translateStatic,
+  useTranslation,
+  type TranslationKey,
+} from '@/lib/i18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -92,6 +98,7 @@ import {
 } from '@/components/ui/table'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { LanguageSwitch } from '@/components/language-switch'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ThemeSwitch } from '@/components/theme-switch'
@@ -104,6 +111,7 @@ const emptyGroup = (): SaveAccessGroupBody => ({
 })
 
 export function AccessGroupsPage() {
+  const { t } = useTranslation()
   const client = useQueryClient()
   const [groupPage, setGroupPage] = useState(1)
   const [groupSearchInput, setGroupSearchInput] = useState('')
@@ -198,7 +206,13 @@ export function AccessGroupsPage() {
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
       setAccessGroupEnabled(id, enabled),
     onSuccess: (_, variables) => {
-      toast.success(variables.enabled ? '分组已启用' : '分组已停用')
+      toast.success(
+        t(
+          variables.enabled
+            ? 'accessGroups.toast.groupEnabled'
+            : 'accessGroups.toast.groupDisabled'
+        )
+      )
       void refresh()
       void client.invalidateQueries({ queryKey: ['admin-access-tokens'] })
     },
@@ -207,7 +221,7 @@ export function AccessGroupsPage() {
   const remove = useMutation({
     mutationFn: deleteAccessGroup,
     onSuccess: (_, deletedGroupId) => {
-      toast.success('分组已删除')
+      toast.success(t('accessGroups.toast.groupDeleted'))
       if (tokenGroupId === String(deletedGroupId)) setTokenGroupId('all')
       if (groups.data?.items.length === 1 && groupPage > 1) {
         setGroupPage((current) => current - 1)
@@ -224,7 +238,9 @@ export function AccessGroupsPage() {
         bulkUnbinds
       ),
     onSuccess: (result) => {
-      toast.success(`已更新 ${result.updated} 个 Token`)
+      toast.success(
+        t('accessGroups.toast.bulkLimitsUpdated', { count: result.updated })
+      )
       setSelectedTokens(new Set())
       void client.invalidateQueries({ queryKey: ['admin-access-tokens'] })
     },
@@ -245,6 +261,7 @@ export function AccessGroupsPage() {
     <>
       <Header>
         <div className='ms-auto flex items-center gap-2'>
+          <LanguageSwitch />
           <ThemeSwitch />
           <ConfigDrawer />
         </div>
@@ -253,10 +270,10 @@ export function AccessGroupsPage() {
         <div className='mb-6 flex flex-wrap items-start justify-between gap-3'>
           <div>
             <h1 className='text-2xl font-bold tracking-tight'>
-              访问分组与计费
+              {t('accessGroups.title')}
             </h1>
             <p className='text-muted-foreground'>
-              管理用户模型访问权限以及积分计费倍率。
+              {t('accessGroups.subtitle')}
             </p>
           </div>
           <div className='flex gap-2'>
@@ -264,7 +281,7 @@ export function AccessGroupsPage() {
               <DropdownMenuTrigger asChild>
                 <Button variant='outline'>
                   <KeyRound />
-                  签发 Token
+                  {t('accessGroups.issue.trigger')}
                   <ChevronDown className='size-4' />
                 </Button>
               </DropdownMenuTrigger>
@@ -275,9 +292,11 @@ export function AccessGroupsPage() {
                 >
                   <KeyRound className='mt-0.5 size-4' />
                   <span>
-                    <span className='block font-medium'>单个签发</span>
+                    <span className='block font-medium'>
+                      {t('accessGroups.issue.single.title')}
+                    </span>
                     <span className='block text-xs text-muted-foreground'>
-                      创建一个 Access Token
+                      {t('accessGroups.issue.single.desc')}
                     </span>
                   </span>
                 </DropdownMenuItem>
@@ -287,9 +306,11 @@ export function AccessGroupsPage() {
                 >
                   <Layers3 className='mt-0.5 size-4' />
                   <span>
-                    <span className='block font-medium'>批量签发</span>
+                    <span className='block font-medium'>
+                      {t('accessGroups.issue.batch.title')}
+                    </span>
                     <span className='block text-xs text-muted-foreground'>
-                      按照统一配置一次生成多个 Token
+                      {t('accessGroups.issue.batch.desc')}
                     </span>
                   </span>
                 </DropdownMenuItem>
@@ -297,7 +318,7 @@ export function AccessGroupsPage() {
             </DropdownMenu>
             <Button onClick={() => setEditing(null)}>
               <Plus />
-              新建分组
+              {t('accessGroups.createGroup')}
             </Button>
           </div>
         </div>
@@ -305,27 +326,31 @@ export function AccessGroupsPage() {
         <div className='mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
           <AccessSummaryCard
             icon={UsersRound}
-            label='分组总数'
+            label={t('accessGroups.summary.groupTotal')}
             value={summary.data?.groupTotal}
-            detail='全部访问分组'
+            detail={t('accessGroups.summary.groupTotalDetail')}
           />
           <AccessSummaryCard
             icon={Key}
-            label='Token 总数'
+            label={t('accessGroups.summary.tokenTotal')}
             value={summary.data?.tokenTotal}
-            detail='包含所有生命周期状态'
+            detail={t('accessGroups.summary.tokenTotalDetail')}
           />
           <AccessSummaryCard
             icon={Box}
-            label='启用的分组'
+            label={t('accessGroups.summary.enabledGroups')}
             value={summary.data?.enabledGroupTotal}
-            detail={`共 ${summary.data?.groupTotal ?? '—'} 个分组`}
+            detail={t('accessGroups.summary.enabledGroupsDetail', {
+              count: summary.data?.groupTotal ?? '—',
+            })}
           />
           <AccessSummaryCard
             icon={Power}
-            label='启用的 Token'
+            label={t('accessGroups.summary.activeTokens')}
             value={summary.data?.activeTokenTotal}
-            detail={`共 ${summary.data?.tokenTotal ?? '—'} 个 Token`}
+            detail={t('accessGroups.summary.activeTokensDetail', {
+              count: summary.data?.tokenTotal ?? '—',
+            })}
           />
         </div>
 
@@ -333,7 +358,9 @@ export function AccessGroupsPage() {
           <Card className='flex min-h-[680px] min-w-0 flex-col overflow-hidden xl:h-[calc(100vh-17rem)]'>
             <div className='space-y-3 border-b p-4'>
               <h2 className='font-semibold'>
-                访问分组（{summary.data?.groupTotal ?? '—'}）
+                {t('accessGroups.groupList.heading', {
+                  count: summary.data?.groupTotal ?? '—',
+                })}
               </h2>
               <form
                 className='relative'
@@ -351,17 +378,21 @@ export function AccessGroupsPage() {
                   className='pl-9'
                   value={groupSearchInput}
                   onChange={(event) => setGroupSearchInput(event.target.value)}
-                  placeholder='搜索分组名称，按回车筛选'
+                  placeholder={t('accessGroups.groupList.searchPlaceholder')}
                 />
               </form>
               <div className='flex gap-2'>
                 {(
                   [
-                    ['all', '全部', summary.data?.groupTotal],
-                    ['enabled', '启用', summary.data?.enabledGroupTotal],
+                    ['all', t('common.state.all'), summary.data?.groupTotal],
+                    [
+                      'enabled',
+                      t('accessGroups.groupList.filterEnabled'),
+                      summary.data?.enabledGroupTotal,
+                    ],
                     [
                       'disabled',
-                      '停用',
+                      t('accessGroups.groupList.filterDisabled'),
                       summary.data
                         ? summary.data.groupTotal -
                           summary.data.enabledGroupTotal
@@ -401,16 +432,24 @@ export function AccessGroupsPage() {
                 </div>
               ) : !groups.data?.items.length ? (
                 <div className='p-12 text-center text-muted-foreground'>
-                  暂无匹配分组
+                  {t('accessGroups.groupList.empty')}
                 </div>
               ) : (
                 <Table className='min-w-[430px]'>
                   <TableHeader className='sticky top-0 z-10 bg-background'>
                     <TableRow>
-                      <TableHead>分组名称</TableHead>
-                      <TableHead>模型权限</TableHead>
-                      <TableHead>倍率</TableHead>
-                      <TableHead>模型数</TableHead>
+                      <TableHead>
+                        {t('accessGroups.groupList.columns.name')}
+                      </TableHead>
+                      <TableHead>
+                        {t('accessGroups.groupList.columns.permission')}
+                      </TableHead>
+                      <TableHead>
+                        {t('accessGroups.groupList.columns.multiplier')}
+                      </TableHead>
+                      <TableHead>
+                        {t('accessGroups.groupList.columns.modelCount')}
+                      </TableHead>
                       <TableHead className='w-12' />
                     </TableRow>
                   </TableHeader>
@@ -439,11 +478,17 @@ export function AccessGroupsPage() {
                                   : 'text-xs text-muted-foreground'
                               }
                             >
-                              {group.enabled ? '● 启用' : '● 停用'}
+                              {t(
+                                group.enabled
+                                  ? 'accessGroups.groupList.statusEnabled'
+                                  : 'accessGroups.groupList.statusDisabled'
+                              )}
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant='secondary'>指定模型</Badge>
+                            <Badge variant='secondary'>
+                              {t('accessGroups.groupList.specifiedModels')}
+                            </Badge>
                           </TableCell>
                           <TableCell className='font-medium whitespace-nowrap'>
                             {modelMultiplierRange(group)}
@@ -457,7 +502,10 @@ export function AccessGroupsPage() {
                                 <Button
                                   size='icon'
                                   variant='ghost'
-                                  aria-label={`${group.displayName} 操作`}
+                                  aria-label={t(
+                                    'accessGroups.groupList.rowActions',
+                                    { name: group.displayName }
+                                  )}
                                 >
                                   <MoreHorizontal />
                                 </Button>
@@ -467,19 +515,19 @@ export function AccessGroupsPage() {
                                   onSelect={() => setPermissionGroup(group)}
                                 >
                                   <ShieldCheck />
-                                  模型权限与倍率
+                                  {t('accessGroups.groupList.menu.permissions')}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() => setRenaming(group)}
                                 >
                                   <PenLine />
-                                  重命名分组
+                                  {t('accessGroups.groupList.menu.rename')}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() => setEditing(group)}
                                 >
                                   <Pencil />
-                                  编辑分组
+                                  {t('accessGroups.groupList.menu.edit')}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() =>
@@ -490,21 +538,28 @@ export function AccessGroupsPage() {
                                   }
                                 >
                                   {group.enabled ? <Ban /> : <Power />}
-                                  {group.enabled ? '停用分组' : '启用分组'}
+                                  {t(
+                                    group.enabled
+                                      ? 'accessGroups.groupList.menu.disable'
+                                      : 'accessGroups.groupList.menu.enable'
+                                  )}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className='text-destructive focus:text-destructive'
                                   onSelect={() => {
                                     if (
                                       window.confirm(
-                                        `确定删除分组“${group.displayName}”吗？`
+                                        t(
+                                          'accessGroups.groupList.confirmDelete',
+                                          { name: group.displayName }
+                                        )
                                       )
                                     )
                                       remove.mutate(group.id)
                                   }}
                                 >
                                   <Trash2 />
-                                  删除分组
+                                  {t('accessGroups.groupList.menu.delete')}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -521,7 +576,7 @@ export function AccessGroupsPage() {
                 page={groupPage}
                 totalPages={groups.data.totalPages}
                 total={groups.data.total}
-                unit='个分组'
+                totalKey='accessGroups.pagination.groupsTotal'
                 onPageChange={setGroupPage}
                 compact
               />
@@ -531,28 +586,38 @@ export function AccessGroupsPage() {
           <Card className='flex min-h-[680px] min-w-0 flex-col overflow-hidden xl:h-[calc(100vh-17rem)]'>
             <div className='space-y-4 border-b p-4'>
               <div>
-                <h2 className='font-semibold'>Token 与设备绑定</h2>
+                <h2 className='font-semibold'>
+                  {t('accessGroups.tokenPanel.heading')}
+                </h2>
                 {selectedGroup ? (
                   <div className='mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-muted/45 px-3 py-2.5 text-sm'>
                     <strong>{selectedGroup.displayName}</strong>
                     <Badge
                       variant={selectedGroup.enabled ? 'default' : 'secondary'}
                     >
-                      {selectedGroup.enabled ? '启用' : '停用'}
+                      {t(
+                        selectedGroup.enabled
+                          ? 'accessGroups.groupList.filterEnabled'
+                          : 'accessGroups.groupList.filterDisabled'
+                      )}
                     </Badge>
                     <span className='text-muted-foreground'>
-                      模型数量 {selectedGroup.modelCount}
+                      {t('accessGroups.tokenPanel.groupModelCount', {
+                        count: selectedGroup.modelCount,
+                      })}
                     </span>
                     <span className='text-muted-foreground'>
-                      模型倍率 {modelMultiplierRange(selectedGroup)}
+                      {t('accessGroups.tokenPanel.groupMultiplier', {
+                        range: modelMultiplierRange(selectedGroup),
+                      })}
                     </span>
                     <span className='text-muted-foreground'>
-                      Token 绑定后不可切换分组
+                      {t('accessGroups.tokenPanel.groupImmutable')}
                     </span>
                   </div>
                 ) : (
                   <p className='mt-1 text-sm text-muted-foreground'>
-                    请先从左侧选择一个访问分组。
+                    {t('accessGroups.tokenPanel.selectGroupHint')}
                   </p>
                 )}
               </div>
@@ -573,11 +638,11 @@ export function AccessGroupsPage() {
                     onChange={(event) =>
                       setTokenSearchInput(event.target.value)
                     }
-                    placeholder='搜索 Label / Token，按回车筛选'
+                    placeholder={t('accessGroups.tokenPanel.searchPlaceholder')}
                   />
                 </form>
                 <FilterSelect
-                  ariaLabel='Token 状态'
+                  ariaLabel={t('accessGroups.tokenPanel.statusFilter.label')}
                   value={tokenStatus}
                   onChange={(value) => {
                     setTokenStatus(value)
@@ -585,15 +650,27 @@ export function AccessGroupsPage() {
                     setSelectedTokens(new Set())
                   }}
                   options={[
-                    ['all', '全部状态'],
-                    ['ACTIVE', '正常使用'],
-                    ['DISABLED', '已停用'],
-                    ['REVOKED', '永久撤销'],
-                    ['ARCHIVED', '已归档'],
+                    ['all', t('accessGroups.tokenPanel.statusFilter.all')],
+                    [
+                      'ACTIVE',
+                      t('accessGroups.tokenPanel.statusFilter.active'),
+                    ],
+                    [
+                      'DISABLED',
+                      t('accessGroups.tokenPanel.statusFilter.disabled'),
+                    ],
+                    [
+                      'REVOKED',
+                      t('accessGroups.tokenPanel.statusFilter.revoked'),
+                    ],
+                    [
+                      'ARCHIVED',
+                      t('accessGroups.tokenPanel.statusFilter.archived'),
+                    ],
                   ]}
                 />
                 <FilterSelect
-                  ariaLabel='设备状态'
+                  ariaLabel={t('accessGroups.tokenPanel.deviceFilter.label')}
                   value={deviceStatus}
                   onChange={(value) => {
                     setDeviceStatus(value)
@@ -601,25 +678,30 @@ export function AccessGroupsPage() {
                     setSelectedTokens(new Set())
                   }}
                   options={[
-                    ['all', '全部设备'],
-                    ['unbound', '未绑定'],
-                    ['bound', '已绑定'],
-                    ['limit', '达到上限'],
+                    ['all', t('accessGroups.tokenPanel.deviceFilter.all')],
+                    [
+                      'unbound',
+                      t('accessGroups.tokenPanel.deviceFilter.unbound'),
+                    ],
+                    ['bound', t('accessGroups.tokenPanel.deviceFilter.bound')],
+                    ['limit', t('accessGroups.tokenPanel.deviceFilter.limit')],
                   ]}
                 />
               </div>
               <div className='flex flex-wrap items-end justify-between gap-3 rounded-lg bg-muted/45 px-3 py-2.5'>
                 <div className='text-sm font-medium'>
-                  已选择 {selectedTokens.size} 个 Token
+                  {t('accessGroups.tokenPanel.selectedCount', {
+                    count: selectedTokens.size,
+                  })}
                 </div>
                 <div className='flex flex-wrap items-end gap-2'>
                   <CompactNumber
-                    label='绑定上限'
+                    label={t('accessGroups.tokenPanel.bulkBindings')}
                     value={bulkBindings}
                     onChange={setBulkBindings}
                   />
                   <CompactNumber
-                    label='解绑上限'
+                    label={t('accessGroups.tokenPanel.bulkUnbinds')}
                     value={bulkUnbinds}
                     onChange={setBulkUnbinds}
                   />
@@ -628,14 +710,16 @@ export function AccessGroupsPage() {
                     disabled={!selectedTokens.size || bulkLimits.isPending}
                     onClick={() => bulkLimits.mutate()}
                   >
-                    应用到 {selectedTokens.size} 个 Token
+                    {t('accessGroups.tokenPanel.applyToSelected', {
+                      count: selectedTokens.size,
+                    })}
                   </Button>
                 </div>
               </div>
             </div>
             {activeGroupId === 'all' ? (
               <div className='flex flex-1 items-center justify-center text-sm text-muted-foreground'>
-                请选择访问分组
+                {t('accessGroups.tokenPanel.selectGroupEmpty')}
               </div>
             ) : accessTokens.isLoading ? (
               <div className='flex h-32 items-center justify-center'>
@@ -652,8 +736,10 @@ export function AccessGroupsPage() {
                     <TableRow>
                       <TableHead className='w-10'>
                         <Checkbox
-                          aria-label='全选当前页 Token'
-                          title='全选当前页 Token'
+                          aria-label={t(
+                            'accessGroups.tokenPanel.selectAllOnPage'
+                          )}
+                          title={t('accessGroups.tokenPanel.selectAllOnPage')}
                           checked={
                             allCurrentTokensSelected
                               ? true
@@ -672,13 +758,27 @@ export function AccessGroupsPage() {
                         />
                       </TableHead>
                       <TableHead className='min-w-64'>Token</TableHead>
-                      <TableHead>状态</TableHead>
-                      <TableHead>已绑定设备</TableHead>
-                      <TableHead>绑定上限</TableHead>
-                      <TableHead>剩余可解绑</TableHead>
-                      <TableHead>解绑上限</TableHead>
-                      <TableHead>最近使用</TableHead>
-                      <TableHead className='text-right'>操作</TableHead>
+                      <TableHead>
+                        {t('accessGroups.tokenPanel.columns.status')}
+                      </TableHead>
+                      <TableHead>
+                        {t('accessGroups.tokenPanel.columns.boundDevices')}
+                      </TableHead>
+                      <TableHead>
+                        {t('accessGroups.tokenPanel.columns.bindLimit')}
+                      </TableHead>
+                      <TableHead>
+                        {t('accessGroups.tokenPanel.columns.remainingUnbinds')}
+                      </TableHead>
+                      <TableHead>
+                        {t('accessGroups.tokenPanel.columns.unbindLimit')}
+                      </TableHead>
+                      <TableHead>
+                        {t('accessGroups.tokenPanel.columns.lastUsed')}
+                      </TableHead>
+                      <TableHead className='text-right'>
+                        {t('accessGroups.tokenPanel.columns.actions')}
+                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -699,7 +799,7 @@ export function AccessGroupsPage() {
                     {!accessTokens.data?.items.length && (
                       <TableRow>
                         <TableCell colSpan={9} className='h-28 text-center'>
-                          暂无访问 Token
+                          {t('accessGroups.tokenPanel.empty')}
                         </TableCell>
                       </TableRow>
                     )}
@@ -712,7 +812,7 @@ export function AccessGroupsPage() {
                 page={tokenPage}
                 totalPages={accessTokens.data.totalPages}
                 total={accessTokens.data.total}
-                unit='个 Token'
+                totalKey='accessGroups.pagination.tokensTotal'
                 onPageChange={setTokenPage}
               />
             )}
@@ -783,6 +883,7 @@ function TokenLimitsRow({
   onReissue: () => void
   onSelected: (selected: boolean) => void
 }) {
+  const { t, localeTag } = useTranslation()
   const client = useQueryClient()
   const [maxBindings, setMaxBindings] = useState(token.maxMachineBindings)
   const [maxUnbinds, setMaxUnbinds] = useState(token.maxUnbindCount)
@@ -801,7 +902,9 @@ function TokenLimitsRow({
     mutationFn: () =>
       updateTokenMachineLimits(token.id, maxBindings, maxUnbinds),
     onSuccess: () => {
-      toast.success(`Token“${token.label}”限制已更新`)
+      toast.success(
+        t('accessGroups.toast.tokenLimitsUpdated', { label: token.label })
+      )
       void client.invalidateQueries({ queryKey: ['admin-access-tokens'] })
     },
     onError: showError,
@@ -812,11 +915,13 @@ function TokenLimitsRow({
     onSuccess: (_, status) => {
       setPendingAction(null)
       toast.success(
-        status === 'ACTIVE'
-          ? 'Token 已启用'
-          : status === 'DISABLED'
-            ? 'Token 已停用'
-            : 'Token 已永久撤销'
+        t(
+          status === 'ACTIVE'
+            ? 'accessGroups.toast.tokenEnabled'
+            : status === 'DISABLED'
+              ? 'accessGroups.toast.tokenDisabled'
+              : 'accessGroups.toast.tokenRevoked'
+        )
       )
       void client.invalidateQueries({ queryKey: ['admin-access-tokens'] })
       void client.invalidateQueries({ queryKey: ['admin-access-summary'] })
@@ -827,7 +932,7 @@ function TokenLimitsRow({
     mutationFn: () => archiveAccessToken(token.id),
     onSuccess: () => {
       setPendingAction(null)
-      toast.success('Token 已归档，账单和用量历史已保留')
+      toast.success(t('accessGroups.toast.tokenArchived'))
       void client.invalidateQueries({ queryKey: ['admin-access-tokens'] })
       void client.invalidateQueries({ queryKey: ['admin-access-summary'] })
     },
@@ -837,7 +942,7 @@ function TokenLimitsRow({
     mutationFn: () => hardDeleteAccessToken(token.id),
     onSuccess: () => {
       setPendingAction(null)
-      toast.success('未使用 Token 已物理删除')
+      toast.success(t('accessGroups.toast.tokenHardDeleted'))
       void client.invalidateQueries({ queryKey: ['admin-access-tokens'] })
       void client.invalidateQueries({ queryKey: ['admin-access-summary'] })
     },
@@ -864,7 +969,7 @@ function TokenLimitsRow({
             <button
               type='button'
               className='block max-w-64 truncate font-mono text-xs text-primary underline-offset-4 hover:underline focus-visible:underline'
-              title='点击查看完整 Token'
+              title={t('accessGroups.secret.viewFull')}
               onClick={() => {
                 setSecretOpen(true)
                 setFullToken(null)
@@ -878,7 +983,7 @@ function TokenLimitsRow({
         </TableCell>
         <TableCell>
           <Badge variant={token.status === 'ACTIVE' ? 'default' : 'secondary'}>
-            {tokenStatusLabel(token.status)}
+            {t(tokenStatusLabelKey(token.status))}
           </Badge>
         </TableCell>
         <TableCell>{token.boundMachineCount}</TableCell>
@@ -906,7 +1011,9 @@ function TokenLimitsRow({
           />
         </TableCell>
         <TableCell className='text-sm whitespace-nowrap text-muted-foreground'>
-          {token.lastUsedAt ? formatShortDate(token.lastUsedAt) : '从未使用'}
+          {token.lastUsedAt
+            ? formatShortDate(token.lastUsedAt, localeTag)
+            : t('accessGroups.tokenPanel.neverUsed')}
         </TableCell>
         <TableCell className='text-right'>
           <div className='flex justify-end gap-1'>
@@ -916,11 +1023,15 @@ function TokenLimitsRow({
               disabled={save.isPending || immutable}
               onClick={() => save.mutate()}
             >
-              <Save /> 保存
+              <Save /> {t('common.action.save')}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size='icon' variant='ghost' aria-label='Token 操作'>
+                <Button
+                  size='icon'
+                  variant='ghost'
+                  aria-label={t('accessGroups.tokenPanel.rowActions')}
+                >
                   <MoreHorizontal />
                 </Button>
               </DropdownMenuTrigger>
@@ -929,12 +1040,12 @@ function TokenLimitsRow({
                   <DropdownMenuItem
                     onSelect={() => setPendingAction('DISABLE')}
                   >
-                    <Ban /> 停用 Token
+                    <Ban /> {t('accessGroups.tokenPanel.menu.disable')}
                   </DropdownMenuItem>
                 )}
                 {token.status === 'DISABLED' && (
                   <DropdownMenuItem onSelect={() => setPendingAction('ENABLE')}>
-                    <KeyRound /> 启用 Token
+                    <KeyRound /> {t('accessGroups.tokenPanel.menu.enable')}
                   </DropdownMenuItem>
                 )}
                 {(token.status === 'ACTIVE' || token.status === 'DISABLED') && (
@@ -942,14 +1053,14 @@ function TokenLimitsRow({
                     className='text-destructive focus:text-destructive'
                     onSelect={() => setPendingAction('REVOKE')}
                   >
-                    <Ban /> 安全撤销（永久）
+                    <Ban /> {t('accessGroups.tokenPanel.menu.revoke')}
                   </DropdownMenuItem>
                 )}
                 {token.status !== 'ARCHIVED' && (
                   <DropdownMenuItem
                     onSelect={() => setPendingAction('ARCHIVE')}
                   >
-                    <Archive /> 归档并隐藏
+                    <Archive /> {t('accessGroups.tokenPanel.menu.archive')}
                   </DropdownMenuItem>
                 )}
                 {token.canHardDelete && (
@@ -957,7 +1068,7 @@ function TokenLimitsRow({
                     className='text-destructive focus:text-destructive'
                     onSelect={() => setPendingAction('DELETE')}
                   >
-                    <Trash2 /> 物理删除
+                    <Trash2 /> {t('accessGroups.tokenPanel.menu.hardDelete')}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -977,7 +1088,7 @@ function TokenLimitsRow({
       >
         <DialogContent className='sm:max-w-xl'>
           <DialogHeader>
-            <DialogTitle>完整访问 Token</DialogTitle>
+            <DialogTitle>{t('accessGroups.secret.title')}</DialogTitle>
             <DialogDescription>{token.label}</DialogDescription>
           </DialogHeader>
           <div className='flex items-start gap-3 rounded-md bg-muted/55 p-3 text-sm'>
@@ -985,7 +1096,9 @@ function TokenLimitsRow({
             <div>
               <div className='font-medium'>{token.groupDisplayName}</div>
               <div className='text-xs text-muted-foreground'>
-                {token.groupModelCount}个模型 · 按模型倍率计费 · 签发后不可修改
+                {t('accessGroups.secret.meta', {
+                  count: token.groupModelCount,
+                })}
               </div>
             </div>
             <Button
@@ -997,7 +1110,7 @@ function TokenLimitsRow({
                 onReissue()
               }}
             >
-              重新签发 Token
+              {t('accessGroups.secret.reissue')}
             </Button>
           </div>
           {reveal.isPending ? (
@@ -1015,16 +1128,18 @@ function TokenLimitsRow({
                 onClick={async () => {
                   await navigator.clipboard.writeText(fullToken)
                   setCopied(true)
-                  toast.success('Token 已复制')
+                  toast.success(t('accessGroups.toast.tokenCopied'))
                 }}
               >
                 {copied ? <Check /> : <Copy />}
-                {copied ? '已复制' : '复制 Token'}
+                {copied
+                  ? t('common.action.copied')
+                  : t('accessGroups.secret.copy')}
               </Button>
             </div>
           ) : (
             <div className='py-8 text-center text-sm text-muted-foreground'>
-              该 Token 无法恢复，请重新签发。
+              {t('accessGroups.secret.unavailable')}
             </div>
           )}
         </DialogContent>
@@ -1041,76 +1156,63 @@ function TokenLimitsRow({
             setPendingAction(null)
           }
         }}
-        title={
+        title={t(
           pendingAction === 'ENABLE'
-            ? `启用 Token“${token.label}”`
+            ? 'accessGroups.confirm.enableTitle'
             : pendingAction === 'DISABLE'
-              ? `停用 Token“${token.label}”`
+              ? 'accessGroups.confirm.disableTitle'
               : pendingAction === 'REVOKE'
-                ? `安全撤销 Token“${token.label}”`
+                ? 'accessGroups.confirm.revokeTitle'
                 : pendingAction === 'ARCHIVE'
-                  ? `归档并隐藏 Token“${token.label}”`
-                  : `物理删除 Token“${token.label}”`
-        }
+                  ? 'accessGroups.confirm.archiveTitle'
+                  : 'accessGroups.confirm.deleteTitle',
+          { label: token.label }
+        )}
         desc={
           <div className='space-y-2'>
             {pendingAction === 'ENABLE' && (
-              <p>
-                启用后该 Token
-                可以重新发起请求，原有账单、用量和钱包记录保持不变。
-              </p>
+              <p>{t('accessGroups.confirm.enableDesc')}</p>
             )}
             {pendingAction === 'DISABLE' && (
               <>
-                <p>停用后该 Token 将立即停止使用，但以后可以重新启用。</p>
-                <p>不会删除 Token，也不会删除用量、账本、钱包或账单历史。</p>
+                <p>{t('accessGroups.confirm.disableDesc1')}</p>
+                <p>{t('accessGroups.confirm.disableDesc2')}</p>
               </>
             )}
             {pendingAction === 'REVOKE' && (
               <>
-                <p>
-                  撤销后该 Token
-                  永久失效，不能再次启用，但仍会保留在默认列表中作为安全审计记录。
-                </p>
-                <p>
-                  不会删除任何用量、账本、钱包或账单历史；如需隐藏，可在撤销后再归档。
-                </p>
+                <p>{t('accessGroups.confirm.revokeDesc1')}</p>
+                <p>{t('accessGroups.confirm.revokeDesc2')}</p>
               </>
             )}
             {pendingAction === 'ARCHIVE' && (
               <>
-                <p>
-                  归档后该 Token
-                  无法使用，并从默认列表隐藏，可通过“已归档”状态筛选查看。
-                </p>
-                <p>Token 主记录及其用量、账本、钱包和账单历史都会完整保留。</p>
+                <p>{t('accessGroups.confirm.archiveDesc1')}</p>
+                <p>{t('accessGroups.confirm.archiveDesc2')}</p>
               </>
             )}
             {pendingAction === 'DELETE' && (
               <>
-                <p>
-                  该 Token
-                  经后端判定从未使用，且不存在用量、有效账本、钱包变更或机器绑定记录。
-                </p>
+                <p>{t('accessGroups.confirm.deleteDesc1')}</p>
                 <p className='font-medium text-destructive'>
-                  物理删除会移除 Token 主记录且不能恢复。
+                  {t('accessGroups.confirm.deleteDesc2')}
                 </p>
               </>
             )}
           </div>
         }
-        cancelBtnText='取消'
-        confirmText={
+        cancelBtnText={t('common.action.cancel')}
+        confirmText={t(
           pendingAction === 'ENABLE'
-            ? '确认启用'
+            ? 'accessGroups.confirm.enableConfirm'
             : pendingAction === 'DISABLE'
-              ? '确认停用'
+              ? 'accessGroups.confirm.disableConfirm'
               : pendingAction === 'REVOKE'
-                ? '确认安全撤销'
+                ? 'accessGroups.confirm.revokeConfirm'
                 : pendingAction === 'ARCHIVE'
-                  ? '确认归档并隐藏'
-                  : '确认物理删除'
-        }
+                  ? 'accessGroups.confirm.archiveConfirm'
+                  : 'accessGroups.confirm.deleteConfirm'
+        )}
         destructive={pendingAction === 'REVOKE' || pendingAction === 'DELETE'}
         isLoading={
           changeStatus.isPending || archive.isPending || hardDelete.isPending
@@ -1131,32 +1233,31 @@ function ListPagination({
   page,
   totalPages,
   total,
-  unit,
+  totalKey,
   onPageChange,
   compact = false,
 }: {
   page: number
   totalPages: number
   total: number
-  unit: string
+  totalKey: TranslationKey
   onPageChange: (page: number) => void
   compact?: boolean
 }) {
+  const { t } = useTranslation()
   return (
     <div className='flex min-w-max items-center justify-between gap-4 border-t px-4 py-3 text-sm'>
-      <span className='text-muted-foreground'>
-        共 {total} {unit}
-      </span>
+      <span className='text-muted-foreground'>{t(totalKey, { total })}</span>
       <div className='flex items-center gap-2'>
         <Button
           size='sm'
           variant='outline'
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
-          aria-label='上一页'
+          aria-label={t('common.pagination.prev')}
         >
           <ChevronLeft />
-          {!compact && '上一页'}
+          {!compact && t('common.pagination.prev')}
         </Button>
         <span className='min-w-16 text-center tabular-nums'>
           {page} / {totalPages}
@@ -1166,9 +1267,9 @@ function ListPagination({
           variant='outline'
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
-          aria-label='下一页'
+          aria-label={t('common.pagination.next')}
         >
-          {!compact && '下一页'}
+          {!compact && t('common.pagination.next')}
           <ChevronRight />
         </Button>
       </div>
@@ -1187,6 +1288,7 @@ function AccessSummaryCard({
   value?: number
   detail: string
 }) {
+  const { localeTag } = useTranslation()
   return (
     <Card>
       <CardContent className='flex items-center gap-4 p-4'>
@@ -1196,7 +1298,7 @@ function AccessSummaryCard({
         <div className='min-w-0'>
           <div className='text-sm text-muted-foreground'>{label}</div>
           <div className='text-2xl font-bold tabular-nums'>
-            {value == null ? '—' : value.toLocaleString('zh-CN')}
+            {value == null ? '—' : value.toLocaleString(localeTag)}
           </div>
           <div className='truncate text-xs text-muted-foreground'>{detail}</div>
         </div>
@@ -1265,19 +1367,22 @@ function RenameGroupDialog({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { t } = useTranslation()
   const [displayName, setDisplayName] = useState(group.displayName)
   const rename = useMutation({
     mutationFn: (name: string) => renameAccessGroup(group.id, name),
     onSuccess: () => {
-      toast.success('分组名称已更新')
+      toast.success(t('accessGroups.toast.groupRenamed'))
       onSaved()
     },
     onError: showError,
   })
   const submit = () => {
     const name = displayName.trim()
-    if (!name) return toast.error('请输入分组名称')
-    if (name.length > 128) return toast.error('分组名称不能超过 128 个字符')
+    if (!name)
+      return toast.error(t('accessGroups.validation.groupNameRequired'))
+    if (name.length > 128)
+      return toast.error(t('accessGroups.validation.groupNameTooLong'))
     if (name === group.displayName) return onClose()
     rename.mutate(name)
   }
@@ -1285,31 +1390,28 @@ function RenameGroupDialog({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className='sm:max-w-md'>
         <DialogHeader>
-          <DialogTitle>重命名访问分组</DialogTitle>
-          <DialogDescription>
-            分组名称只用于展示，Token 鉴权与历史计费流水都按分组 ID
-            关联，改名不影响 既有配置。
-          </DialogDescription>
+          <DialogTitle>{t('accessGroups.rename.title')}</DialogTitle>
+          <DialogDescription>{t('accessGroups.rename.desc')}</DialogDescription>
         </DialogHeader>
         <div className='grid gap-4 py-2'>
-          <Field label='分组名称'>
+          <Field label={t('accessGroups.rename.nameLabel')}>
             <Input
               autoFocus
               value={displayName}
               maxLength={128}
               onChange={(event) => setDisplayName(event.target.value)}
               onKeyDown={(event) => event.key === 'Enter' && submit()}
-              placeholder='例如：VIP 用户'
+              placeholder={t('accessGroups.rename.namePlaceholder')}
             />
           </Field>
         </div>
         <DialogFooter>
           <Button variant='outline' onClick={onClose}>
-            取消
+            {t('common.action.cancel')}
           </Button>
           <Button onClick={submit} disabled={rename.isPending}>
             {rename.isPending && <Loader2 className='animate-spin' />}
-            保存名称
+            {t('accessGroups.rename.submit')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1326,6 +1428,7 @@ function GroupDialog({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { t } = useTranslation()
   const [form, setForm] = useState(() =>
     group ? fromGroup(group) : emptyGroup()
   )
@@ -1342,41 +1445,52 @@ function GroupDialog({
       }
     },
     onSuccess: () => {
-      toast.success(group ? '分组已更新' : '分组已创建')
+      toast.success(
+        t(
+          group
+            ? 'accessGroups.toast.groupUpdated'
+            : 'accessGroups.toast.groupCreated'
+        )
+      )
       onSaved()
     },
     onError: showError,
   })
   const submit = () => {
     const displayName = form.displayName.trim()
-    if (!displayName) return toast.error('请输入分组名称')
+    if (!displayName)
+      return toast.error(t('accessGroups.validation.groupNameRequired'))
     if (displayName.length > 128)
-      return toast.error('分组名称不能超过 128 个字符')
+      return toast.error(t('accessGroups.validation.groupNameTooLong'))
     save.mutate({ ...form, displayName })
   }
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{group ? '编辑访问分组' : '新建访问分组'}</DialogTitle>
-          <DialogDescription>
-            设置分组身份和基本状态；模型权限与模型倍率在独立面板中配置。
-          </DialogDescription>
+          <DialogTitle>
+            {t(
+              group
+                ? 'accessGroups.dialog.editTitle'
+                : 'accessGroups.dialog.createTitle'
+            )}
+          </DialogTitle>
+          <DialogDescription>{t('accessGroups.dialog.desc')}</DialogDescription>
         </DialogHeader>
         <div className='grid gap-4 py-2'>
-          <Field label='分组名称'>
+          <Field label={t('accessGroups.dialog.nameLabel')}>
             <Input
               value={form.displayName}
               maxLength={128}
               onChange={(e) =>
                 setForm({ ...form, displayName: e.target.value })
               }
-              placeholder='例如：VIP 用户'
+              placeholder={t('accessGroups.dialog.namePlaceholder')}
             />
           </Field>
           <Toggle
-            label='启用分组'
-            description='停用后，该分组的 Token 将无法认证'
+            label={t('accessGroups.dialog.enableLabel')}
+            description={t('accessGroups.dialog.enableDesc')}
             checked={form.enabled}
             onCheckedChange={(checked) =>
               setForm({ ...form, enabled: checked })
@@ -1385,11 +1499,11 @@ function GroupDialog({
         </div>
         <DialogFooter>
           <Button variant='outline' onClick={onClose}>
-            取消
+            {t('common.action.cancel')}
           </Button>
           <Button onClick={submit} disabled={save.isPending}>
             {save.isPending && <Loader2 className='animate-spin' />}
-            保存
+            {t('common.action.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1408,6 +1522,7 @@ function PermissionSheet({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { t } = useTranslation()
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(group.modelIds)
   )
@@ -1425,7 +1540,7 @@ function PermissionSheet({
   const save = useMutation({
     mutationFn: saveAccessGroup,
     onSuccess: () => {
-      toast.success('模型权限已更新')
+      toast.success(t('accessGroups.toast.permissionsUpdated'))
       onSaved()
     },
     onError: showError,
@@ -1434,9 +1549,11 @@ function PermissionSheet({
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent className='sm:max-w-xl'>
         <SheetHeader>
-          <SheetTitle>{group.displayName} · 模型权限与倍率</SheetTitle>
+          <SheetTitle>
+            {t('accessGroups.permission.title', { name: group.displayName })}
+          </SheetTitle>
           <SheetDescription>
-            配置该分组可用的平台模型，并为每个模型设置独立的模型倍率。
+            {t('accessGroups.permission.desc')}
           </SheetDescription>
         </SheetHeader>
         <div className='flex min-h-0 flex-1 flex-col gap-4 overflow-hidden px-4'>
@@ -1446,11 +1563,15 @@ function PermissionSheet({
               className='pl-9'
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder='搜索 Model ID / 模型名称'
+              placeholder={t('accessGroups.permission.searchPlaceholder')}
             />
           </div>
           <div className='flex items-center justify-between text-sm text-muted-foreground'>
-            <span>已选 {selected.size} 个模型</span>
+            <span>
+              {t('accessGroups.permission.selectedCount', {
+                count: selected.size,
+              })}
+            </span>
             <div className='flex gap-2'>
               <Button
                 size='sm'
@@ -1466,14 +1587,14 @@ function PermissionSheet({
                   }))
                 }}
               >
-                全选
+                {t('accessGroups.permission.selectAll')}
               </Button>
               <Button
                 size='sm'
                 variant='ghost'
                 onClick={() => setSelected(new Set())}
               >
-                清空
+                {t('accessGroups.permission.clear')}
               </Button>
             </div>
           </div>
@@ -1505,7 +1626,9 @@ function PermissionSheet({
                 </span>
                 {selected.has(model.modelId) ? (
                   <Input
-                    aria-label={`${model.displayName} 模型倍率`}
+                    aria-label={t('accessGroups.permission.multiplierAria', {
+                      name: model.displayName,
+                    })}
                     type='text'
                     inputMode='decimal'
                     value={modelMultipliers[model.modelId] ?? ''}
@@ -1516,10 +1639,14 @@ function PermissionSheet({
                         [model.modelId]: event.target.value,
                       }))
                     }
-                    placeholder='倍率'
+                    placeholder={t(
+                      'accessGroups.permission.multiplierPlaceholder'
+                    )}
                   />
                 ) : !model.enabled ? (
-                  <Badge variant='secondary'>已停用</Badge>
+                  <Badge variant='secondary'>
+                    {t('common.state.disabled')}
+                  </Badge>
                 ) : (
                   <span />
                 )}
@@ -1529,7 +1656,7 @@ function PermissionSheet({
         </div>
         <SheetFooter>
           <Button variant='outline' onClick={onClose}>
-            取消
+            {t('common.action.cancel')}
           </Button>
           <Button
             disabled={save.isPending}
@@ -1545,7 +1672,9 @@ function PermissionSheet({
                   (value) => !Number.isFinite(value) || value <= 0
                 )
               )
-                return toast.error('请为每个已选模型配置大于 0 的模型倍率')
+                return toast.error(
+                  t('accessGroups.validation.multiplierPositive')
+                )
               save.mutate({
                 ...fromGroup(group),
                 models: [...selected],
@@ -1554,7 +1683,7 @@ function PermissionSheet({
             }}
           >
             {save.isPending && <Loader2 className='animate-spin' />}
-            保存模型权限与倍率
+            {t('accessGroups.permission.submit')}
           </Button>
         </SheetFooter>
       </SheetContent>
@@ -1573,6 +1702,7 @@ function IssueTokenSheet({
   pointsPerUsd?: number
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const availableGroups = groups.filter((group) => group.enabled)
   const [label, setLabel] = useState('')
@@ -1594,21 +1724,22 @@ function IssueTokenSheet({
         queryClient.invalidateQueries({ queryKey: ['admin-access-tokens'] }),
         queryClient.invalidateQueries({ queryKey: ['admin-access-summary'] }),
       ])
-      toast.success('Token 签发成功')
+      toast.success(t('accessGroups.toast.tokenIssued'))
     },
     onError: showError,
   })
   const submit = () => {
     const points = Number(initialPoints)
     const expiresAt = expiryValue(expiry, customExpiry)
-    if (!label.trim()) return toast.error('请输入 Token 名称')
-    if (!groupId) return toast.error('请选择访问分组')
+    if (!label.trim())
+      return toast.error(t('accessGroups.validation.tokenLabelRequired'))
+    if (!groupId) return toast.error(t('accessGroups.validation.groupRequired'))
     if (!Number.isFinite(points) || points < 0)
-      return toast.error('初始积分不能小于 0')
+      return toast.error(t('accessGroups.validation.pointsNegative'))
     if (expiry === 'custom' && !expiresAt)
-      return toast.error('请选择自定义过期时间')
+      return toast.error(t('accessGroups.validation.customExpiryRequired'))
     if (expiresAt && new Date(expiresAt) <= new Date())
-      return toast.error('过期时间必须晚于当前时间')
+      return toast.error(t('accessGroups.validation.expiryFuture'))
     mutation.mutate({
       label: label.trim(),
       groupId,
@@ -1624,11 +1755,19 @@ function IssueTokenSheet({
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent className='sm:max-w-xl'>
         <SheetHeader>
-          <SheetTitle>{issued ? 'Token 签发成功' : '签发 Token'}</SheetTitle>
+          <SheetTitle>
+            {t(
+              issued
+                ? 'accessGroups.issueSheet.successTitle'
+                : 'accessGroups.issueSheet.title'
+            )}
+          </SheetTitle>
           <SheetDescription>
-            {issued
-              ? '新的访问 Token 已生成。'
-              : '创建一个新的访问 Token，并设置初始积分与设备使用限制。'}
+            {t(
+              issued
+                ? 'accessGroups.issueSheet.successDesc'
+                : 'accessGroups.issueSheet.desc'
+            )}
           </SheetDescription>
         </SheetHeader>
         {issued ? (
@@ -1642,15 +1781,17 @@ function IssueTokenSheet({
             </div>
             <div className='grid grid-cols-2 gap-4 border-y py-4 text-sm'>
               <Summary
-                label='初始积分'
+                label={t('accessGroups.issueSheet.initialPoints')}
                 value={formatPoints(issued.initialPoints)}
               />
               <Summary
-                label='设备上限'
+                label={t('accessGroups.issueSheet.deviceLimit')}
                 value={
                   issued.maxMachineBindings === 0
-                    ? '不限'
-                    : `${issued.maxMachineBindings} 台`
+                    ? t('accessGroups.issueSheet.deviceUnlimited')
+                    : t('accessGroups.issueSheet.deviceCount', {
+                        count: issued.maxMachineBindings,
+                      })
                 }
               />
             </div>
@@ -1663,28 +1804,28 @@ function IssueTokenSheet({
                 <Button
                   variant='outline'
                   size='icon'
-                  aria-label='复制 Token'
+                  aria-label={t('accessGroups.issueSheet.copyAria')}
                   onClick={() => void copyText(issued.token, setCopied)}
                 >
                   {copied ? <Check /> : <Copy />}
                 </Button>
               </div>
               <p className='text-sm font-medium'>
-                请立即复制并妥善保存 Token。
+                {t('accessGroups.issueSheet.saveNotice')}
               </p>
             </section>
           </div>
         ) : (
           <div className='flex-1 overflow-y-auto px-4 pb-4'>
-            <FormSection title='基础信息'>
-              <Field label='Token 名称 / Label'>
+            <FormSection title={t('accessGroups.issueSheet.sectionBasic')}>
+              <Field label={t('accessGroups.issueSheet.labelField')}>
                 <Input
                   value={label}
                   onChange={(event) => setLabel(event.target.value)}
-                  placeholder='例如：客户A-生产环境'
+                  placeholder={t('accessGroups.issueSheet.labelPlaceholder')}
                 />
               </Field>
-              <Field label='所属访问分组'>
+              <Field label={t('accessGroups.issueSheet.groupField')}>
                 <GroupSelect
                   groups={availableGroups}
                   value={groupId}
@@ -1695,25 +1836,27 @@ function IssueTokenSheet({
               {selectedGroup && (
                 <div className='grid grid-cols-2 gap-3 rounded-md bg-muted/60 p-3 text-sm'>
                   <Summary
-                    label='模型倍率'
+                    label={t('accessGroups.issueSheet.multiplierSummary')}
                     value={modelMultiplierRange(selectedGroup)}
                   />
                   <Summary
-                    label='模型权限'
-                    value={`${selectedGroup.modelCount} 个模型`}
+                    label={t('accessGroups.issueSheet.permissionSummary')}
+                    value={t('accessGroups.issueSheet.modelCountValue', {
+                      count: selectedGroup.modelCount,
+                    })}
                   />
                 </div>
               )}
             </FormSection>
-            <FormSection title='使用限制'>
+            <FormSection title={t('accessGroups.issueSheet.sectionLimits')}>
               <Toggle
-                label='启用 Token'
-                description='签发后可立即用于访问'
+                label={t('accessGroups.issueSheet.enableLabel')}
+                description={t('accessGroups.issueSheet.enableDesc')}
                 checked={enabled}
                 onCheckedChange={setEnabled}
               />
               <div className='grid grid-cols-2 gap-3'>
-                <Field label='设备绑定上限'>
+                <Field label={t('accessGroups.issueSheet.bindLimit')}>
                   <Input
                     type='number'
                     min={0}
@@ -1725,10 +1868,10 @@ function IssueTokenSheet({
                     }
                   />
                   <p className='mt-1.5 text-xs text-muted-foreground'>
-                    0 = 不限制设备数量
+                    {t('accessGroups.issueSheet.bindLimitHint')}
                   </p>
                 </Field>
-                <Field label='允许解绑次数'>
+                <Field label={t('accessGroups.issueSheet.unbindLimit')}>
                   <Input
                     type='number'
                     min={0}
@@ -1738,7 +1881,7 @@ function IssueTokenSheet({
                     }
                   />
                   <p className='mt-1.5 text-xs text-muted-foreground'>
-                    0 = 禁止用户主动解绑
+                    {t('accessGroups.issueSheet.unbindLimitHint')}
                   </p>
                 </Field>
               </div>
@@ -1749,8 +1892,8 @@ function IssueTokenSheet({
                 onCustomExpiryChange={setCustomExpiry}
               />
             </FormSection>
-            <FormSection title='初始积分'>
-              <Field label='初始积分'>
+            <FormSection title={t('accessGroups.issueSheet.sectionPoints')}>
+              <Field label={t('accessGroups.issueSheet.initialPoints')}>
                 <Input
                   type='text'
                   inputMode='decimal'
@@ -1760,25 +1903,35 @@ function IssueTokenSheet({
               </Field>
               <div className='space-y-1 rounded-md bg-muted/60 p-3 text-sm'>
                 <div>
-                  当前模型倍率：
+                  {t('accessGroups.issueSheet.currentMultiplierLabel')}
                   <strong>
                     {selectedGroup ? modelMultiplierRange(selectedGroup) : '—'}
                   </strong>
                 </div>
                 <div>
-                  基础规则：1 USD 模型成本 ={' '}
                   {pointsPerUsd == null
-                    ? '读取中…'
-                    : `${formatPoints(pointsPerUsd)} 积分`}
+                    ? t('accessGroups.issueSheet.baseRuleLoading')
+                    : t('accessGroups.issueSheet.baseRule', {
+                        points: formatPoints(pointsPerUsd),
+                      })}
                 </div>
                 <div>
-                  该 Token 初始余额：
-                  <strong>{formatPoints(Number(initialPoints))} 积分</strong>
+                  {t('accessGroups.issueSheet.initialBalanceLabel')}
+                  <strong>
+                    {t('accessGroups.issueSheet.pointsValue', {
+                      points: formatPoints(Number(initialPoints)),
+                    })}
+                  </strong>
                 </div>
               </div>
             </FormSection>
-            <FormSection title='生成方式' last>
-              <GenerationInfo label='自动安全生成' />
+            <FormSection
+              title={t('accessGroups.issueSheet.sectionGeneration')}
+              last
+            >
+              <GenerationInfo
+                label={t('accessGroups.issueSheet.generationLabel')}
+              />
             </FormSection>
           </div>
         )}
@@ -1789,21 +1942,23 @@ function IssueTokenSheet({
                 variant='outline'
                 onClick={() => void copyText(issued.token, setCopied)}
               >
-                <Copy /> 复制 Token
+                <Copy /> {t('accessGroups.secret.copy')}
               </Button>
-              <Button onClick={onClose}>完成</Button>
+              <Button onClick={onClose}>
+                {t('accessGroups.issueSheet.done')}
+              </Button>
             </>
           ) : (
             <>
               <Button variant='outline' onClick={onClose}>
-                取消
+                {t('common.action.cancel')}
               </Button>
               <Button
                 disabled={mutation.isPending || !availableGroups.length}
                 onClick={submit}
               >
                 {mutation.isPending && <Loader2 className='animate-spin' />}
-                签发 Token
+                {t('accessGroups.issueSheet.title')}
               </Button>
             </>
           )}
@@ -1820,6 +1975,7 @@ function BatchIssueTokenSheet({
   groups: AccessGroup[]
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const availableGroups = groups.filter((group) => group.enabled)
   const [groupId, setGroupId] = useState(availableGroups[0]?.id ?? 0)
@@ -1843,22 +1999,25 @@ function BatchIssueTokenSheet({
         queryClient.invalidateQueries({ queryKey: ['admin-access-tokens'] }),
         queryClient.invalidateQueries({ queryKey: ['admin-access-summary'] }),
       ])
-      toast.success(`已成功生成 ${result.quantity} 个 Token`)
+      toast.success(
+        t('accessGroups.toast.tokensIssued', { count: result.quantity })
+      )
     },
     onError: showError,
   })
   const submit = () => {
     const expiresAt = expiryValue(expiry, customExpiry)
-    if (!labelPrefix.trim()) return toast.error('请输入 Token 名称前缀')
-    if (!groupId) return toast.error('请选择访问分组')
+    if (!labelPrefix.trim())
+      return toast.error(t('accessGroups.validation.tokenPrefixRequired'))
+    if (!groupId) return toast.error(t('accessGroups.validation.groupRequired'))
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 1000)
-      return toast.error('生成数量必须是 1 到 1000 的整数')
+      return toast.error(t('accessGroups.validation.quantityRange'))
     if (!Number.isFinite(points) || points < 0)
-      return toast.error('每个 Token 初始积分不能小于 0')
+      return toast.error(t('accessGroups.validation.batchPointsNegative'))
     if (expiry === 'custom' && !expiresAt)
-      return toast.error('请选择自定义过期时间')
+      return toast.error(t('accessGroups.validation.customExpiryRequired'))
     if (expiresAt && new Date(expiresAt) <= new Date())
-      return toast.error('过期时间必须晚于当前时间')
+      return toast.error(t('accessGroups.validation.expiryFuture'))
     mutation.mutate({
       labelPrefix: labelPrefix.trim(),
       quantity,
@@ -1875,11 +2034,19 @@ function BatchIssueTokenSheet({
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent className='sm:max-w-3xl'>
         <SheetHeader>
-          <SheetTitle>{issued ? '批量签发完成' : '批量签发 Token'}</SheetTitle>
+          <SheetTitle>
+            {t(
+              issued
+                ? 'accessGroups.batchSheet.successTitle'
+                : 'accessGroups.batchSheet.title'
+            )}
+          </SheetTitle>
           <SheetDescription>
             {issued
-              ? `已成功生成 ${issued.quantity} 个 Token。`
-              : '使用相同配置一次创建多个访问 Token，适合批量销售、活动发放和测试环境。'}
+              ? t('accessGroups.batchSheet.successDesc', {
+                  count: issued.quantity,
+                })
+              : t('accessGroups.batchSheet.desc')}
           </SheetDescription>
         </SheetHeader>
         {issued ? (
@@ -1890,8 +2057,8 @@ function BatchIssueTokenSheet({
           />
         ) : (
           <div className='flex-1 overflow-y-auto px-4 pb-4'>
-            <FormSection title='批量规则'>
-              <Field label='所属访问分组'>
+            <FormSection title={t('accessGroups.batchSheet.sectionRules')}>
+              <Field label={t('accessGroups.batchSheet.groupField')}>
                 <GroupSelect
                   groups={availableGroups}
                   value={groupId}
@@ -1900,7 +2067,7 @@ function BatchIssueTokenSheet({
               </Field>
               <ImmutableGroupNotice batch />
               <div className='grid grid-cols-[140px_1fr] gap-3'>
-                <Field label='生成数量'>
+                <Field label={t('accessGroups.batchSheet.quantityField')}>
                   <Input
                     type='number'
                     min={1}
@@ -1911,35 +2078,39 @@ function BatchIssueTokenSheet({
                     }
                   />
                 </Field>
-                <Field label='Token 名称前缀'>
+                <Field label={t('accessGroups.batchSheet.prefixField')}>
                   <Input
                     value={labelPrefix}
                     onChange={(event) => setLabelPrefix(event.target.value)}
-                    placeholder='例如：淘宝套餐20元'
+                    placeholder={t('accessGroups.batchSheet.prefixPlaceholder')}
                     maxLength={120}
                   />
                 </Field>
               </div>
               <div className='rounded-md bg-muted/55 p-3 text-xs text-muted-foreground'>
                 <span className='mb-1 block font-medium text-foreground'>
-                  实时预览
+                  {t('accessGroups.batchSheet.livePreview')}
                 </span>
-                {batchLabelPreview(labelPrefix, quantity).map((label) => (
+                {batchLabelPreview(
+                  labelPrefix,
+                  quantity,
+                  t('accessGroups.batchSheet.prefixFallback')
+                ).map((label) => (
                   <span key={label} className='block font-mono'>
                     {label}
                   </span>
                 ))}
               </div>
             </FormSection>
-            <FormSection title='统一使用限制'>
+            <FormSection title={t('accessGroups.batchSheet.sectionLimits')}>
               <Toggle
-                label='启用 Token'
-                description='本批次签发后可立即使用'
+                label={t('accessGroups.batchSheet.enableLabel')}
+                description={t('accessGroups.batchSheet.enableDesc')}
                 checked={enabled}
                 onCheckedChange={setEnabled}
               />
               <div className='grid grid-cols-2 gap-3'>
-                <Field label='设备绑定上限'>
+                <Field label={t('accessGroups.batchSheet.bindLimit')}>
                   <Input
                     type='number'
                     min={0}
@@ -1951,7 +2122,7 @@ function BatchIssueTokenSheet({
                     }
                   />
                 </Field>
-                <Field label='允许解绑次数'>
+                <Field label={t('accessGroups.batchSheet.unbindLimit')}>
                   <Input
                     type='number'
                     min={0}
@@ -1969,11 +2140,11 @@ function BatchIssueTokenSheet({
                 onCustomExpiryChange={setCustomExpiry}
               />
               <p className='text-xs text-muted-foreground'>
-                以上配置将应用到本批次全部 Token。
+                {t('accessGroups.batchSheet.limitsNotice')}
               </p>
             </FormSection>
-            <FormSection title='统一初始积分'>
-              <Field label='每个 Token 初始积分'>
+            <FormSection title={t('accessGroups.batchSheet.sectionPoints')}>
+              <Field label={t('accessGroups.batchSheet.pointsField')}>
                 <Input
                   type='text'
                   inputMode='decimal'
@@ -1982,41 +2153,63 @@ function BatchIssueTokenSheet({
                 />
               </Field>
               <div className='grid grid-cols-2 gap-3 rounded-md bg-muted/55 p-3 text-sm sm:grid-cols-4'>
-                <Summary label='生成数量' value={String(quantity)} />
-                <Summary label='每个积分' value={formatPoints(points)} />
                 <Summary
-                  label='总发放积分'
-                  value={`${formatPoints(totalPoints)} Points`}
+                  label={t('accessGroups.batchSheet.quantityField')}
+                  value={String(quantity)}
                 />
                 <Summary
-                  label='访问分组 / 模型倍率'
+                  label={t('accessGroups.batchSheet.pointsPerToken')}
+                  value={formatPoints(points)}
+                />
+                <Summary
+                  label={t('accessGroups.batchSheet.totalPoints')}
+                  value={t('accessGroups.batchSheet.totalPointsValue', {
+                    points: formatPoints(totalPoints),
+                  })}
+                />
+                <Summary
+                  label={t('accessGroups.batchSheet.groupAndMultiplier')}
                   value={`${selectedGroup?.displayName ?? '—'} · ${selectedGroup ? modelMultiplierRange(selectedGroup) : '—'}`}
                 />
               </div>
             </FormSection>
-            <FormSection title='生成方式' last>
-              <GenerationInfo label='服务端安全随机生成' />
+            <FormSection
+              title={t('accessGroups.batchSheet.sectionGeneration')}
+              last
+            >
+              <GenerationInfo
+                label={t('accessGroups.batchSheet.generationLabel')}
+              />
             </FormSection>
           </div>
         )}
         {!issued && (
           <SheetFooter className='border-t'>
             <div className='me-auto hidden text-xs text-muted-foreground sm:block'>
-              即将生成 <strong className='text-foreground'>{quantity}</strong>{' '}
-              个 Token · {selectedGroup?.displayName ?? '未选择分组'} ·{' '}
-              {formatPoints(points)} 积分 / Token · 总计{' '}
-              {formatPoints(totalPoints)} Points · 设备上限{' '}
-              {maxMachineBindings === 0 ? '不限' : `${maxMachineBindings}台`}
+              {t('accessGroups.batchSheet.footerSummary', {
+                quantity,
+                group:
+                  selectedGroup?.displayName ??
+                  t('accessGroups.batchSheet.footerGroupUnset'),
+                points: formatPoints(points),
+                total: formatPoints(totalPoints),
+                devices:
+                  maxMachineBindings === 0
+                    ? t('accessGroups.batchSheet.footerDeviceUnlimited')
+                    : t('accessGroups.batchSheet.footerDeviceCount', {
+                        count: maxMachineBindings,
+                      }),
+              })}
             </div>
             <Button variant='outline' onClick={onClose}>
-              取消
+              {t('common.action.cancel')}
             </Button>
             <Button
               disabled={mutation.isPending || !availableGroups.length}
               onClick={submit}
             >
               {mutation.isPending && <Loader2 className='animate-spin' />}
-              批量签发 {quantity} 个 Token
+              {t('accessGroups.batchSheet.submit', { quantity })}
             </Button>
           </SheetFooter>
         )}
@@ -2034,6 +2227,7 @@ function BatchIssueResult({
   group?: AccessGroup
   onDone: () => void
 }) {
+  const { t } = useTranslation()
   const copyAll = () =>
     copyText(
       [
@@ -2045,18 +2239,19 @@ function BatchIssueResult({
     <div className='flex min-h-0 flex-1 flex-col gap-4 px-4 pb-4'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <div className='flex items-center gap-2 font-medium text-emerald-600'>
-          <Check className='size-5' /> 已成功生成 {result.quantity} 个 Token
+          <Check className='size-5' />{' '}
+          {t('accessGroups.batchResult.generated', { count: result.quantity })}
         </div>
         <div className='flex gap-2'>
           <Button variant='outline' size='sm' onClick={() => void copyAll()}>
-            <Copy /> 复制全部
+            <Copy /> {t('accessGroups.batchResult.copyAll')}
           </Button>
           <Button
             variant='outline'
             size='sm'
             onClick={() => exportTokensCsv(result.items, group)}
           >
-            <Download /> 导出 CSV
+            <Download /> {t('accessGroups.batchResult.exportCsv')}
           </Button>
         </div>
       </div>
@@ -2064,10 +2259,16 @@ function BatchIssueResult({
         <Table className='min-w-[760px]'>
           <TableHeader className='sticky top-0 bg-background'>
             <TableRow>
-              <TableHead>名称</TableHead>
+              <TableHead>
+                {t('accessGroups.batchResult.columns.label')}
+              </TableHead>
               <TableHead>Token</TableHead>
-              <TableHead>分组</TableHead>
-              <TableHead>初始积分</TableHead>
+              <TableHead>
+                {t('accessGroups.batchResult.columns.group')}
+              </TableHead>
+              <TableHead>
+                {t('accessGroups.batchResult.columns.initialPoints')}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -2083,7 +2284,9 @@ function BatchIssueResult({
                       size='icon'
                       variant='ghost'
                       className='size-7 shrink-0'
-                      aria-label={`复制 ${item.label}`}
+                      aria-label={t('accessGroups.batchResult.copyRow', {
+                        label: item.label,
+                      })}
                       onClick={() => void copyText(item.token)}
                     >
                       <Copy />
@@ -2100,7 +2303,7 @@ function BatchIssueResult({
         </Table>
       </div>
       <div className='flex justify-end'>
-        <Button onClick={onDone}>完成</Button>
+        <Button onClick={onDone}>{t('accessGroups.batchResult.done')}</Button>
       </div>
     </div>
   )
@@ -2124,15 +2327,20 @@ function FormSection({
 }
 
 function ImmutableGroupNotice({ batch }: { batch: boolean }) {
+  const { t } = useTranslation()
   return (
     <div className='flex gap-3 rounded-md border border-blue-200 bg-blue-50/70 p-3 text-sm dark:border-blue-900 dark:bg-blue-950/30'>
       <LockKeyhole className='mt-0.5 size-4 shrink-0 text-blue-600' />
       <div>
-        <div className='font-medium'>分组绑定后不可修改</div>
+        <div className='font-medium'>
+          {t('accessGroups.notice.immutableTitle')}
+        </div>
         <p className='mt-0.5 text-xs text-muted-foreground'>
-          {batch
-            ? '本批次生成的所有 Token 都将永久绑定到该访问分组。'
-            : 'Token 签发后将永久绑定当前访问分组。如需使用其他分组，请重新签发新的 Token。'}
+          {t(
+            batch
+              ? 'accessGroups.notice.immutableBatch'
+              : 'accessGroups.notice.immutableSingle'
+          )}
         </p>
       </div>
     </div>
@@ -2148,17 +2356,23 @@ function GroupSelect({
   value: number
   onChange: (value: number) => void
 }) {
+  const { t } = useTranslation()
   return (
     <select
       className='h-10 w-full rounded-md border bg-background px-3 text-sm'
       value={value}
       onChange={(event) => onChange(Number(event.target.value))}
     >
-      {!groups.length && <option value={0}>暂无已启用分组</option>}
+      {!groups.length && (
+        <option value={0}>{t('accessGroups.groupSelect.empty')}</option>
+      )}
       {groups.map((group) => (
         <option key={group.id} value={group.id}>
-          {group.displayName} · {modelMultiplierRange(group)} ·{' '}
-          {group.modelCount}个模型
+          {t('accessGroups.groupSelect.option', {
+            name: group.displayName,
+            range: modelMultiplierRange(group),
+            count: group.modelCount,
+          })}
         </option>
       ))}
     </select>
@@ -2176,9 +2390,10 @@ function ExpiryControl({
   onExpiryChange: (value: ExpiryPreset) => void
   onCustomExpiryChange: (value: string) => void
 }) {
+  const { t } = useTranslation()
   return (
     <>
-      <Field label='过期时间'>
+      <Field label={t('accessGroups.expiry.label')}>
         <select
           className='h-10 w-full rounded-md border bg-background px-3 text-sm'
           value={expiry}
@@ -2186,12 +2401,12 @@ function ExpiryControl({
             onExpiryChange(event.target.value as ExpiryPreset)
           }
         >
-          <option value='never'>永不过期</option>
-          <option value='7'>7 天</option>
-          <option value='30'>30 天</option>
-          <option value='90'>90 天</option>
-          <option value='365'>1 年</option>
-          <option value='custom'>自定义时间</option>
+          <option value='never'>{t('accessGroups.expiry.never')}</option>
+          <option value='7'>{t('accessGroups.expiry.days7')}</option>
+          <option value='30'>{t('accessGroups.expiry.days30')}</option>
+          <option value='90'>{t('accessGroups.expiry.days90')}</option>
+          <option value='365'>{t('accessGroups.expiry.year1')}</option>
+          <option value='custom'>{t('accessGroups.expiry.custom')}</option>
         </select>
       </Field>
       {expiry === 'custom' && (
@@ -2206,13 +2421,14 @@ function ExpiryControl({
 }
 
 function GenerationInfo({ label }: { label: string }) {
+  const { t } = useTranslation()
   return (
     <div className='flex items-center gap-3 text-sm'>
       <span className='size-2.5 rounded-full bg-primary' />
       <div>
         <div className='font-medium'>{label}</div>
         <div className='text-xs text-muted-foreground'>
-          sk_ + 安全随机字符 · Token 将由服务端生成
+          {t('accessGroups.generation.hint')}
         </div>
       </div>
     </div>
@@ -2228,13 +2444,16 @@ function Summary({ label, value }: { label: string; value: string }) {
   )
 }
 
-function tokenStatusLabel(status: AccessTokenView['status']) {
-  return {
-    ACTIVE: '正常',
-    DISABLED: '停用',
-    REVOKED: '已撤销',
-    ARCHIVED: '已归档',
-  }[status]
+/** 模块作用域拿不到 `t`，所以只返回词条 key，由渲染处翻译。 */
+const TOKEN_STATUS_KEYS: Record<AccessTokenView['status'], TranslationKey> = {
+  ACTIVE: 'accessGroups.tokenPanel.status.active',
+  DISABLED: 'accessGroups.tokenPanel.status.disabled',
+  REVOKED: 'accessGroups.tokenPanel.status.revoked',
+  ARCHIVED: 'accessGroups.tokenPanel.status.archived',
+}
+
+function tokenStatusLabelKey(status: AccessTokenView['status']) {
+  return TOKEN_STATUS_KEYS[status]
 }
 
 function expiryValue(preset: ExpiryPreset, custom: string) {
@@ -2245,8 +2464,12 @@ function expiryValue(preset: ExpiryPreset, custom: string) {
   return date.toISOString()
 }
 
-function batchLabelPreview(prefix: string, quantity: number) {
-  const safePrefix = prefix.trim() || 'Token名称前缀'
+function batchLabelPreview(
+  prefix: string,
+  quantity: number,
+  fallbackPrefix: string
+) {
+  const safePrefix = prefix.trim() || fallbackPrefix
   const safeQuantity = Math.max(1, Math.min(1000, Math.floor(quantity || 1)))
   const indexes =
     safeQuantity <= 4
@@ -2264,7 +2487,7 @@ function batchLabelPreview(prefix: string, quantity: number) {
 async function copyText(value: string, setCopied?: (copied: boolean) => void) {
   await navigator.clipboard.writeText(value)
   setCopied?.(true)
-  toast.success('Token 已复制')
+  toast.success(translateStatic('accessGroups.toast.tokenCopied'))
 }
 
 function exportTokensCsv(items: IssuedAccessToken[], group?: AccessGroup) {
@@ -2358,7 +2581,8 @@ function modelMultiplierRange(group: AccessGroup) {
   const values = Object.values(group.modelMultipliers)
     .map(Number)
     .filter((value) => Number.isFinite(value))
-  if (!values.length) return '未配置'
+  if (!values.length)
+    return translateStatic('accessGroups.group.multiplierUnset')
   const minimum = Math.min(...values)
   const maximum = Math.max(...values)
   return minimum === maximum
@@ -2367,16 +2591,18 @@ function modelMultiplierRange(group: AccessGroup) {
 }
 
 function formatMultiplier(value: number) {
-  return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 4 })
+  return Number(value).toLocaleString(currentLocaleTag(), {
+    maximumFractionDigits: 4,
+  })
 }
 
 function formatPoints(value: number) {
   if (!Number.isFinite(value)) return '0'
-  return value.toLocaleString('zh-CN', { maximumFractionDigits: 4 })
+  return value.toLocaleString(currentLocaleTag(), { maximumFractionDigits: 4 })
 }
 
-function formatShortDate(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', {
+function formatShortDate(value: string, localeTag: string) {
+  return new Intl.DateTimeFormat(localeTag, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -2384,7 +2610,9 @@ function formatShortDate(value: string) {
 }
 
 function message(error: unknown) {
-  return error instanceof Error ? error.message : '请求失败'
+  return error instanceof Error
+    ? error.message
+    : translateStatic('common.error.requestFailed')
 }
 
 function showError(error: unknown) {

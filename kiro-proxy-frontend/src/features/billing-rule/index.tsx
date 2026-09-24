@@ -12,6 +12,7 @@ import {
   getCurrentBillingRule,
   updateBillingRule,
 } from '@/lib/api/admin'
+import { currentLocaleTag, t as translate, useTranslation } from '@/lib/i18n'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,16 +36,18 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ConfigDrawer } from '@/components/config-drawer'
+import { LanguageSwitch } from '@/components/language-switch'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { ThemeSwitch } from '@/components/theme-switch'
-import { SalesSimulatorCard } from './sales-simulator-card'
 
 const CURRENT_RULE_KEY = ['admin-billing-rule-current'] as const
 const HISTORY_KEY = ['admin-billing-rule-history'] as const
 const HISTORY_FETCH_SIZE = 5
+const EXAMPLE_MULTIPLIER = 2.5
 
 export function BillingRulePage() {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [editOpen, setEditOpen] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -72,9 +75,10 @@ export function BillingRulePage() {
       ])
       setConfirmOpen(false)
       setEditOpen(false)
-      toast.success('新的积分计费规则已生效')
+      toast.success(translate('billingRule.toast.saved'))
     },
-    onError: (error) => toast.error(error.message || '计费规则修改失败'),
+    onError: (error) =>
+      toast.error(error.message || translate('billingRule.toast.saveFailed')),
   })
 
   const currentRate = current.data?.pointsPerUsd ?? 0
@@ -105,32 +109,20 @@ export function BillingRulePage() {
     <>
       <Header>
         <div className='ms-auto flex items-center gap-2'>
+          <LanguageSwitch />
           <ThemeSwitch />
           <ConfigDrawer />
         </div>
       </Header>
       <Main className='max-w-none'>
         <div className='mb-5'>
-          <h1 className='text-2xl font-bold tracking-tight'>积分与计费规则</h1>
+          <h1 className='text-2xl font-bold tracking-tight'>
+            {t('billingRule.title')}
+          </h1>
           <p className='text-muted-foreground'>
-            管理平台积分的计费规则与销售方案，统一配置，实时测算。
+            {t('billingRule.description')}
           </p>
         </div>
-        <nav className='mb-5 flex border-b' aria-label='页面内容导航'>
-          <a
-            href='#billing-rule'
-            className='border-b-2 border-primary px-5 py-3 text-sm font-semibold text-primary'
-          >
-            计费规则
-          </a>
-          <a
-            href='#sales-plan'
-            className='px-5 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground'
-          >
-            积分销售方案
-          </a>
-        </nav>
-
         {current.isLoading ? (
           <Card>
             <CardContent className='flex h-56 items-center justify-center'>
@@ -140,24 +132,21 @@ export function BillingRulePage() {
         ) : current.isError || !current.data ? (
           <Card className='border-destructive/50'>
             <CardContent className='flex h-40 items-center justify-center text-destructive'>
-              当前计费规则不可用，模型计费请求将被安全拒绝。
+              {t('billingRule.unavailable')}
             </CardContent>
           </Card>
         ) : (
           <>
-            <div
-              id='billing-rule'
-              className='grid scroll-mt-20 gap-4 xl:grid-cols-[1.4fr_1fr]'
-            >
+            <div className='grid gap-4 xl:grid-cols-[1.4fr_1fr]'>
               <Card>
                 <CardHeader>
-                  <CardTitle>基础积分换算</CardTitle>
+                  <CardTitle>{t('billingRule.conversion.title')}</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className='flex flex-wrap items-center gap-4 rounded-xl border bg-muted/30 p-5'>
                     <div>
                       <div className='text-sm text-muted-foreground'>
-                        上游模型成本
+                        {t('billingRule.conversion.upstreamCost')}
                       </div>
                       <div className='mt-1 text-xl font-semibold'>1 USD</div>
                     </div>
@@ -167,59 +156,67 @@ export function BillingRulePage() {
                     </div>
                     <div>
                       <div className='text-sm text-muted-foreground'>
-                        平台积分
+                        {t('billingRule.conversion.platformPoints')}
                       </div>
                       <div className='mt-1 text-xl font-semibold'>Points</div>
                     </div>
                   </div>
                   <div className='mt-4 space-y-2 text-sm text-muted-foreground'>
-                    <p>
-                      该值用于将中转站产生的美元模型成本换算成平台基础积分。
-                    </p>
-                    <p>
-                      最终用户实际扣费仍会乘以该访问分组为所用模型配置的
-                      模型倍率。
-                    </p>
+                    <p>{t('billingRule.conversion.hint1')}</p>
+                    <p>{t('billingRule.conversion.hint2')}</p>
                   </div>
                   <div className='mt-5 rounded-lg border p-4 text-sm'>
-                    <div className='font-medium'>示例</div>
+                    <div className='font-medium'>
+                      {t('billingRule.example.title')}
+                    </div>
                     <div className='mt-3 grid gap-3 sm:grid-cols-3'>
-                      <Formula label='上游成本' value='$0.50' />
                       <Formula
-                        label='基础积分'
+                        label={t('billingRule.example.upstreamCost')}
+                        value='$0.50'
+                      />
+                      <Formula
+                        label={t('billingRule.example.basePoints')}
                         value={`${decimal(0.5 * currentRate, 6)} Points`}
                         detail={`0.50 × ${compact(currentRate)}`}
                       />
                       <Formula
-                        label='模型倍率 2.5× 后'
-                        value={`${decimal(0.5 * currentRate * 2.5, 6)} Points`}
-                        detail={`${compact(0.5 * currentRate)} × 2.5`}
+                        label={t('billingRule.example.afterMultiplier', {
+                          multiplier: EXAMPLE_MULTIPLIER,
+                        })}
+                        value={`${decimal(0.5 * currentRate * EXAMPLE_MULTIPLIER, 6)} Points`}
+                        detail={`${compact(0.5 * currentRate)} × ${EXAMPLE_MULTIPLIER}`}
                       />
                     </div>
                   </div>
                   <Button className='mt-5' onClick={openEditor}>
-                    修改规则
+                    {t('billingRule.conversion.editRule')}
                   </Button>
                 </CardContent>
               </Card>
 
               <Card>
                 <CardHeader>
-                  <CardTitle>当前规则信息</CardTitle>
+                  <CardTitle>{t('billingRule.info.title')}</CardTitle>
                 </CardHeader>
                 <CardContent className='space-y-4 text-sm'>
                   <Info
-                    label='当前换算'
+                    label={t('billingRule.info.currentRate')}
                     value={`1 USD = ${compact(currentRate)} Points`}
                   />
-                  <Info label='规则版本' value={`V${current.data.version}`} />
-                  <Info label='当前状态' value={<Badge>启用</Badge>} />
                   <Info
-                    label='生效时间'
+                    label={t('billingRule.info.version')}
+                    value={`V${current.data.version}`}
+                  />
+                  <Info
+                    label={t('billingRule.info.status')}
+                    value={<Badge>{t('common.state.enabled')}</Badge>}
+                  />
+                  <Info
+                    label={t('billingRule.info.effectiveFrom')}
                     value={dateTime(current.data.effectiveFrom)}
                   />
                   <Info
-                    label='最后修改时间'
+                    label={t('billingRule.info.updatedAt')}
                     value={dateTime(current.data.updatedAt)}
                   />
                   <Button
@@ -228,12 +225,14 @@ export function BillingRulePage() {
                     onClick={toggleHistory}
                   >
                     <History />
-                    {historyOpen ? '收起历史版本' : '查看历史版本'}
+                    {historyOpen
+                      ? t('billingRule.history.collapse')
+                      : t('billingRule.history.show')}
                   </Button>
                   {historyOpen && (
                     <div className='overflow-hidden rounded-lg border bg-muted/15'>
                       <div className='border-b px-3 py-2 text-xs font-medium text-muted-foreground'>
-                        历史版本
+                        {t('billingRule.history.title')}
                       </div>
                       <div
                         className='max-h-40 overflow-y-auto overscroll-contain'
@@ -253,11 +252,11 @@ export function BillingRulePage() {
                           </div>
                         ) : history.isError ? (
                           <div className='px-3 py-5 text-center text-xs text-destructive'>
-                            历史版本加载失败，请稍后重试。
+                            {t('billingRule.history.loadFailed')}
                           </div>
                         ) : historicalRules.length === 0 ? (
                           <div className='px-3 py-5 text-center text-xs text-muted-foreground'>
-                            暂无历史版本
+                            {t('billingRule.history.empty')}
                           </div>
                         ) : (
                           <>
@@ -277,8 +276,10 @@ export function BillingRulePage() {
                             {hasMoreHistory && (
                               <div className='px-3 py-2 text-center text-[11px] text-muted-foreground'>
                                 {history.isFetchingNextPage
-                                  ? '正在加载…'
-                                  : `向下滚动加载更多 · 已加载 ${historicalRules.length} 条`}
+                                  ? t('common.state.loading')
+                                  : t('billingRule.history.scrollMore', {
+                                      count: historicalRules.length,
+                                    })}
                               </div>
                             )}
                           </>
@@ -290,29 +291,38 @@ export function BillingRulePage() {
               </Card>
             </div>
 
-            <div className='mt-4'>
-              <SalesSimulatorCard pointsPerUsd={currentRate} />
-            </div>
-
             <Card className='mt-4'>
               <CardHeader>
-                <CardTitle>计算逻辑说明</CardTitle>
+                <CardTitle>{t('billingRule.logic.title')}</CardTitle>
               </CardHeader>
               <CardContent className='grid gap-6 xl:grid-cols-2'>
                 <div className='rounded-xl border p-4'>
-                  <h3 className='text-sm font-semibold'>用户积分扣费</h3>
+                  <h3 className='text-sm font-semibold'>
+                    {t('billingRule.logic.chargeTitle')}
+                  </h3>
                   <FormulaChain
                     parts={[
-                      ['上游模型成本', 'Provider Cost USD'],
-                      ['基础扣费率', `${compact(currentRate)} Points / USD`],
-                      ['模型倍率', 'Model Multiplier'],
-                      ['扣除积分', 'Charged Points'],
+                      [
+                        t('billingRule.logic.upstreamCost'),
+                        'Provider Cost USD',
+                      ],
+                      [
+                        t('billingRule.logic.baseRate'),
+                        `${compact(currentRate)} Points / USD`,
+                      ],
+                      [
+                        t('billingRule.logic.modelMultiplier'),
+                        'Model Multiplier',
+                      ],
+                      [t('billingRule.logic.chargedPoints'), 'Charged Points'],
                     ]}
                     operators={['×', '×', '=']}
                   />
                 </div>
                 <div className='rounded-xl border p-4'>
-                  <h3 className='text-sm font-semibold'>销售利润测算</h3>
+                  <h3 className='text-sm font-semibold'>
+                    {t('billingRule.logic.profitTitle')}
+                  </h3>
                   <div className='mt-4 space-y-3'>
                     <FormulaText>
                       User Points ÷ (Points/USD × Model Multiplier) = Base Model
@@ -339,45 +349,49 @@ export function BillingRulePage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>修改积分计费规则</DialogTitle>
+            <DialogTitle>{t('billingRule.dialog.title')}</DialogTitle>
             <DialogDescription>
-              保存后将创建新版本，历史规则不会被覆盖。
+              {t('billingRule.dialog.description')}
             </DialogDescription>
           </DialogHeader>
           <LabeledInput
-            label='新的 Points / USD'
+            label={t('billingRule.dialog.newRate')}
             value={nextRate}
             onChange={setNextRate}
           />
           <div className='grid grid-cols-[1fr_auto_1fr] items-center gap-3 rounded-lg border p-4 text-sm'>
             <Formula
-              label='当前'
+              label={t('billingRule.dialog.current')}
               value={`1 USD = ${compact(currentRate)} Points`}
             />
             <ArrowRight className='size-4 text-muted-foreground' />
             <Formula
-              label='修改后'
+              label={t('billingRule.dialog.next')}
               value={`1 USD = ${compact(proposedRate)} Points`}
             />
           </div>
           <div className='grid gap-3 rounded-lg bg-muted/40 p-4 text-sm sm:grid-cols-2'>
-            <Formula label='积分消耗速度' value={percent(changePct)} />
             <Formula
-              label='示例模型倍率 2.5×（$1 成本）'
-              value={`${compact((proposedRate ?? 0) * 2.5)} Points`}
-              detail={`当前 ${compact(currentRate * 2.5)} Points`}
+              label={t('billingRule.dialog.consumptionSpeed')}
+              value={percent(changePct)}
+            />
+            <Formula
+              label={t('billingRule.dialog.exampleMultiplier', {
+                multiplier: EXAMPLE_MULTIPLIER,
+              })}
+              value={`${compact((proposedRate ?? 0) * EXAMPLE_MULTIPLIER)} Points`}
+              detail={t('billingRule.dialog.currentPoints', {
+                points: compact(currentRate * EXAMPLE_MULTIPLIER),
+              })}
             />
           </div>
           <div className='flex gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950 dark:bg-amber-950/30 dark:text-amber-100'>
             <AlertTriangle className='mt-0.5 size-5 shrink-0' />
-            <p>
-              新规则只影响保存后开始的新模型请求。已经开始执行的请求，以及历史账单，继续使用请求开始时保存的
-              points_per_usd 快照，不会根据新规则重新计算。
-            </p>
+            <p>{t('billingRule.dialog.warning')}</p>
           </div>
           <DialogFooter>
             <Button variant='outline' onClick={() => setEditOpen(false)}>
-              取消
+              {t('common.action.cancel')}
             </Button>
             <Button
               disabled={proposedRate === null || proposedRate === currentRate}
@@ -386,7 +400,7 @@ export function BillingRulePage() {
                 setConfirmOpen(true)
               }}
             >
-              保存并确认
+              {t('billingRule.dialog.saveAndConfirm')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -395,25 +409,30 @@ export function BillingRulePage() {
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>计费规则即将修改</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t('billingRule.confirm.title')}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              该操作会立即影响保存后开始的新请求。
+              {t('billingRule.confirm.description')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className='space-y-3 rounded-lg border p-4 text-sm'>
             <Info
-              label='当前'
+              label={t('billingRule.dialog.current')}
               value={`1 USD = ${compact(currentRate)} Points`}
             />
             <Info
-              label='修改后'
+              label={t('billingRule.dialog.next')}
               value={`1 USD = ${compact(proposedRate)} Points`}
             />
-            <Info label='变化' value={percent(changePct)} />
+            <Info
+              label={t('billingRule.confirm.change')}
+              value={percent(changePct)}
+            />
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={save.isPending}>
-              取消
+              {t('common.action.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={save.isPending}
@@ -423,7 +442,7 @@ export function BillingRulePage() {
               }}
             >
               {save.isPending && <Loader2 className='animate-spin' />}
-              确认生效
+              {t('billingRule.confirm.action')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -534,12 +553,14 @@ function positive(value: string | number | null | undefined) {
 function compact(value: number | null | undefined) {
   return value == null
     ? '—'
-    : new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 }).format(value)
+    : new Intl.NumberFormat(currentLocaleTag(), {
+        maximumFractionDigits: 8,
+      }).format(value)
 }
 function decimal(value: number | null | undefined, minimum = 6) {
   return value == null
     ? '—'
-    : new Intl.NumberFormat('en-US', {
+    : new Intl.NumberFormat(currentLocaleTag(), {
         minimumFractionDigits: minimum,
         maximumFractionDigits: 8,
       }).format(value)
@@ -549,5 +570,5 @@ function percent(value: number | null) {
   return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`
 }
 function dateTime(value: string) {
-  return new Date(value).toLocaleString('zh-CN', { hour12: false })
+  return new Date(value).toLocaleString(currentLocaleTag(), { hour12: false })
 }

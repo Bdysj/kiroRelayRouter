@@ -8,12 +8,14 @@ import cn.app.kiroproxy.config.ConversationAffinityService;
 import cn.app.kiroproxy.config.RelayModel;
 import cn.app.kiroproxy.config.RelayEndpoint;
 import cn.app.kiroproxy.config.RelaySelector;
+import cn.app.kiroproxy.config.ReasoningSupportService;
 import cn.app.kiroproxy.i18n.RelayLanguage;
 import cn.app.kiroproxy.protocol.CanonicalStreamEvent;
 import cn.app.kiroproxy.protocol.ProtocolAdapter;
 import cn.app.kiroproxy.protocol.ProtocolAdapters;
 import cn.app.kiroproxy.protocol.ProtocolCapability;
 import cn.app.kiroproxy.protocol.ProtocolCode;
+import cn.app.kiroproxy.protocol.ReasoningEffort;
 import cn.app.kiroproxy.protocol.RequestCapabilityInspector;
 import cn.app.kiroproxy.protocol.RelayProtocol;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -63,6 +65,7 @@ public class RelayProxyService implements DisposableBean {
     private final RelaySelector selector;
     private final ConversationAffinityService affinity;
     private final Duration affinityQueueWait;
+    private final ReasoningSupportService reasoningSupport;
     private final ScheduledThreadPoolExecutor deadlines = new ScheduledThreadPoolExecutor(1, task -> {
         Thread thread = new Thread(task, "relay-deadline");
         thread.setDaemon(true);
@@ -75,7 +78,8 @@ public class RelayProxyService implements DisposableBean {
                              @Value("${kiro.relay.request-timeout:10m}") Duration requestTimeout,
                              @Value("${kiro.relay.affinity.queue-wait:10s}") Duration affinityQueueWait,
                              UsageBillingService billing, RelaySelector selector,
-                             ConversationAffinityService affinity) {
+                             ConversationAffinityService affinity,
+                             ReasoningSupportService reasoningSupport) {
         this.repository = repository;
         this.mapper = mapper;
         this.requestTimeout = requestTimeout;
@@ -84,6 +88,7 @@ public class RelayProxyService implements DisposableBean {
         this.selector = selector;
         this.affinity = affinity;
         this.affinityQueueWait = affinityQueueWait;
+        this.reasoningSupport = reasoningSupport;
         deadlines.setRemoveOnCancelPolicy(true);
         // The configured relay terminates HTTP/2 chat streams with GOAWAY.
         // Pin the upstream connector to HTTP/1.1, which is also the protocol
@@ -113,6 +118,8 @@ public class RelayProxyService implements DisposableBean {
         this.selector = selector;
         this.affinity = affinity;
         this.affinityQueueWait = affinityQueueWait;
+        // 测试用构造器不带 Redis：判定为 null 时等价于「没有任何否定标记」，行为 fail-open。
+        this.reasoningSupport = null;
         deadlines.setRemoveOnCancelPolicy(true);
     }
 
@@ -156,7 +163,7 @@ public class RelayProxyService implements DisposableBean {
             // request look frozen in Kiro.
             output.write(KiroProtocol.event(mapper, "initial-response", Map.of("conversationId", conversationId)));
             output.flush();
-            ObjectNode upstreamBody = KiroProtocol.translateRequest(mapper, body, model.modelId());
+            ObjectNode upstreamBody = KiroProtocol.translateRequest(mapper, body, model);
             Set<ProtocolCapability> requiredCapabilities = RequestCapabilityInspector.inspect(upstreamBody);
             long estimatedInputTokens = Math.max(1, mapper.writeValueAsBytes(upstreamBody.path("messages")).length / 3L);
             long maximumOutputTokens = Math.max(0, upstreamBody.path("max_tokens").asLong(4096));
@@ -190,6 +197,7 @@ public class RelayProxyService implements DisposableBean {
             // Finish accounting after the terminal frames are already visible
             // to Kiro so a database round trip does not add UI latency.
             long totalMs = elapsedMillis(startedAt);
+            noteSuspectedIgnoredEffort(state, principal);
             completeBilling(state.charge, state.usage, state.configurationId, state.reportedModelId,
                     new UsageBillingService.RequestMetrics(upstreamHeadersMs, state.firstOutputMillis(), totalMs,
                             state.relayName));
@@ -265,6 +273,10 @@ public class RelayProxyService implements DisposableBean {
             throws IOException, InterruptedException {
         Set<RelaySelector.RouteKey> attempted = new HashSet<>();
         Exception lastFailure = null;
+        // 带了档位就先偏向能真正执行它的路由。否则同一句 prompt、同样选 Max，这次命中
+        // 支持的中转站就深度思考、下次命中不支持的就悄悄降级，用户看到的深度在两次之间
+        // 跳变而毫不知情。挑不到支持的候选时才退让（见下方 relaxed 分支）。
+        boolean preferReasoningRoute = upstreamBody.has(ReasoningEffort.CANONICAL_FIELD);
         while (true) {
             RelaySelector.Lease lease = null;
             RelayEndpoint endpoint;
@@ -277,9 +289,27 @@ public class RelayProxyService implements DisposableBean {
                 state.protocol = endpoint.protocolsFor(model.modelId(), requiredCapabilities).get(0);
             } else {
                 try {
-                    lease = selector.selectRoute(model.modelId(), requiredCapabilities, attempted,
-                            affinityBinding == null ? null : affinityBinding.relayId(),
-                            affinityBinding == null ? Duration.ZERO : affinityQueueWait);
+                    Long preferredRelayId = affinityBinding == null ? null : affinityBinding.relayId();
+                    Duration preferredWait = affinityBinding == null ? Duration.ZERO : affinityQueueWait;
+                    if (preferReasoningRoute) {
+                        try {
+                            lease = selector.selectRoute(model.modelId(), requiredCapabilities, attempted,
+                                    preferredRelayId, preferredWait,
+                                    (candidate, protocol) -> effortAllowedOn(candidate, protocol.code(),
+                                            candidate.upstreamModelId(model.modelId()),
+                                            candidate.reasoningEnabledFor(model.modelId())));
+                        } catch (RelaySelector.NoRelayAvailableException relaxed) {
+                            // 没有任何支持推理强度的候选。退让成普通选路，档位会在下面被剥掉，
+                            // 用户依旧无感知 —— 但至少不是"随机地"降级。
+                            preferReasoningRoute = false;
+                            log.debug("relay effort_preference_relaxed request={} model={}",
+                                    requestId, model.modelId());
+                        }
+                    }
+                    if (lease == null) {
+                        lease = selector.selectRoute(model.modelId(), requiredCapabilities, attempted,
+                                preferredRelayId, preferredWait);
+                    }
                     endpoint = lease.endpoint();
                     state.protocol = lease.protocol();
                 } catch (RelaySelector.ProtocolCapabilityUnavailableException error) {
@@ -324,19 +354,26 @@ public class RelayProxyService implements DisposableBean {
                 state.relayName = endpoint.name();
                 state.sentModelId = sentModelId;
                 ProtocolAdapter adapter = ProtocolAdapters.get(state.protocol.code());
-                byte[] requestBytes;
-                try {
-                    requestBytes = mapper.writeValueAsBytes(adapter.encode(mapper, canonicalBody));
-                } catch (IllegalArgumentException error) {
-                    throw new IOException("协议请求转换失败：" + state.protocol.code(), error);
+                // 判定顺序：管理员裁决优先于运行期学到的结果。
+                Boolean routeDecision = endpoint.reasoningEnabledFor(model.modelId());
+                if (canonicalBody.has(ReasoningEffort.CANONICAL_FIELD)
+                        && !effortAllowedOn(endpoint, state.protocol.code(), sentModelId, routeDecision)) {
+                    log.debug("relay effort_pre_stripped request={} relay_id={} protocol={} sent_model={} reason={}",
+                            requestId, endpoint.id(), state.protocol.code(), sentModelId,
+                            Boolean.FALSE.equals(routeDecision) ? "admin" : "learned");
+                    canonicalBody.remove(ReasoningEffort.CANONICAL_FIELD);
                 }
+                String attemptedEffort = canonicalBody.path(ReasoningEffort.CANONICAL_FIELD).asText(null);
+                state.sentEffort = attemptedEffort;
+                byte[] requestBytes = encodeUpstream(adapter, canonicalBody, state.protocol.code());
                 log.debug("relay upstream_start request={} requested_model={} platform_model={} sent_model={} relay_id={} relay={} "
-                                + "protocol={} elapsed_ms={} bytes={} messages={} tools={} received_images={} upstream_images={}",
+                                + "protocol={} elapsed_ms={} bytes={} messages={} tools={} received_images={} upstream_images={} effort={}",
                         requestId, state.requestedModelId, model.modelId(), sentModelId, endpoint.id(), endpoint.name(),
                         state.protocol.code(), elapsedMillis(startedAt), requestBytes.length, messageCount, toolCount,
-                        receivedImages, upstreamImages);
-                long headersMs = streamFromEndpoint(endpoint, model, state.protocol, adapter, requestBytes, state,
-                        output, startedAt, requestId, language);
+                        receivedImages, upstreamImages, attemptedEffort == null ? "-" : attemptedEffort);
+                long headersMs = streamWithEffortFallback(endpoint, model, adapter, canonicalBody, requestBytes,
+                        attemptedEffort, sentModelId, routeDecision, principal, state, output, startedAt,
+                        requestId, language);
                 if (selector != null) selector.recordSuccess(endpoint);
                 if (principal != null && affinity != null) {
                     affinity.recordSuccess(principal.tokenId(), conversationId, model.modelId(),
@@ -376,6 +413,123 @@ public class RelayProxyService implements DisposableBean {
                 if (lease != null) lease.close();
             }
         }
+    }
+
+    /**
+     * 请求成功但档位疑似没生效时，累积一个供管理员核实的怀疑信号。
+     *
+     * <p>「上游 200 却静默忽略该参数」这一类没有任何错误事件可捕获，只能这样间接观测。
+     * 判定刻意保守：只看中高档位（低档本来就可能不产生思考），并且要求既没有 reasoning
+     * token 也没有收到过任何思考内容。即便如此仍可能误判，所以它<b>只</b>产生告警，
+     * 绝不写否定标记、不影响任何请求。
+     */
+    private void noteSuspectedIgnoredEffort(StreamState state, AccessPrincipal principal) {
+        if (reasoningSupport == null || state.sentEffort == null || state.configurationId == null) return;
+        ReasoningEffort effort = ReasoningEffort.parse(state.sentEffort).orElse(null);
+        if (effort == null || effort.compareTo(ReasoningEffort.MEDIUM) < 0) return;
+        if (state.sawReasoning) return;
+        if (state.usage.path("completion_tokens_details").path("reasoning_tokens").asLong(0) > 0) return;
+        try {
+            reasoningSupport.noteSuspectedIgnored(state.configurationId, state.protocol.code(), state.sentModelId,
+                    state.platformModelId, principal == null ? 0L : principal.tokenId());
+        } catch (RuntimeException error) {
+            // 纯观测路径，绝不能影响一次已经成功的请求。
+            log.warn("relay effort_ignored_note_failed request={}", state.requestId, error);
+        }
+    }
+
+    private byte[] encodeUpstream(ProtocolAdapter adapter, ObjectNode canonicalBody, ProtocolCode code)
+            throws IOException {
+        try {
+            return mapper.writeValueAsBytes(adapter.encode(mapper, canonicalBody));
+        } catch (IllegalArgumentException error) {
+            throw new IOException("协议请求转换失败：" + code, error);
+        }
+    }
+
+    /**
+     * 发起上游请求，并在「上游明确拒绝推理强度参数」时静默降级重试一次。
+     *
+     * <p>归因刻意<b>不靠错误文案</b>：中转站的措辞五花八门，有的转发上游原文、有的自己包一层、
+     * 有的只给一句 bad request，正则匹配迟早误判。这里改用行为归因 —— 去掉 effort 原样重试，
+     * 成功就说明问题出在这个参数，仍然失败就与它无关、抛回<b>原始</b>错误且不留标记。
+     * 代价是无关的 400 会多打一次请求，但无关 400 本来就是硬失败，多一次且仅一次。
+     *
+     * <p>三条纪律，都是为了不让这个降级污染既有机制：
+     * <ul>
+     *   <li>只在首字节之前重试。已经吐给客户端的流不能重放，这也是现有 failover 的前提。</li>
+     *   <li>不消耗 failover 次数、不调 {@code selector.recordFailure} —— 一个模型的参数不兼容
+     *       不该把整个中转站的健康度拖垮，影响它承载的其他模型。</li>
+     *   <li>不重新计费：同一个 endpoint 的内层重试复用已有 charge，避免双份预扣。</li>
+     * </ul>
+     */
+    /**
+     * 这条路由此刻是否允许下发推理强度。
+     *
+     * <p>管理员的显式裁决优先于运行期学到的结果：{@code FALSE} 直接不发，{@code TRUE} 表示
+     * 管理员已确认支持、忽略自动标记（用于纠正误判，代价是万一他判断错了每次会多付一次
+     * 被拒的往返，但至少请求仍然成功，且日志里有 warn 可循）。{@code null} 才看学习结果。
+     */
+    private boolean effortAllowedOn(RelayEndpoint endpoint, ProtocolCode protocol, String upstreamModelId,
+                                    Boolean routeDecision) {
+        if (Boolean.FALSE.equals(routeDecision)) return false;
+        if (Boolean.TRUE.equals(routeDecision)) return true;
+        return reasoningSupport == null || !reasoningSupport.suppressed(endpoint.id(), protocol, upstreamModelId);
+    }
+
+    private long streamWithEffortFallback(RelayEndpoint endpoint, RelayModel model, ProtocolAdapter adapter,
+                                          ObjectNode canonicalBody, byte[] requestBytes, String attemptedEffort,
+                                          String sentModelId, Boolean routeDecision, AccessPrincipal principal,
+                                          StreamState state, OutputStream output,
+                                          long startedAt, String requestId, String language)
+            throws IOException, InterruptedException {
+        try {
+            return streamFromEndpoint(endpoint, model, state.protocol, adapter, requestBytes, state, output,
+                    startedAt, requestId, language);
+        } catch (UpstreamFailure failure) {
+            if (attemptedEffort == null || state.firstOutputNanos != 0 || !rejectsRequestParameters(failure)) {
+                throw failure;
+            }
+            canonicalBody.remove(ReasoningEffort.CANONICAL_FIELD);
+            // 这次已经降级了，别让收尾的「疑似被忽略」统计把它当成一次生效的档位请求。
+            state.sentEffort = null;
+            log.info("relay effort_retry request={} relay_id={} protocol={} sent_model={} effort={} status={}",
+                    requestId, endpoint.id(), state.protocol.code(), sentModelId, attemptedEffort,
+                    failure.httpStatus);
+            long headersMs;
+            try {
+                headersMs = streamFromEndpoint(endpoint, model, state.protocol, adapter,
+                        encodeUpstream(adapter, canonicalBody, state.protocol.code()), state, output,
+                        startedAt, requestId, language);
+            } catch (IOException retryFailure) {
+                // 去掉 effort 依然失败 ⇒ 与它无关。别污染标记，把原始错误抛回去。
+                failure.addSuppressed(retryFailure);
+                throw failure;
+            }
+            // 管理员已显式裁定 TRUE 时不写标记、不累积共识：他已经看过告警并决定忽略，
+            // 再把同一条结论塞回去只会让告警反复复活。
+            boolean learn = !Boolean.TRUE.equals(routeDecision) && reasoningSupport != null;
+            if (learn) {
+                reasoningSupport.noteRejection(endpoint.id(), state.protocol.code(), sentModelId,
+                        model.modelId(), principal == null ? 0L : principal.tokenId());
+            }
+            log.warn("relay effort_unsupported request={} relay_id={} relay={} protocol={} sent_model={} effort={} "
+                            + "downgraded=true learned={}", requestId, endpoint.id(), endpoint.name(),
+                    state.protocol.code(), sentModelId, attemptedEffort, learn);
+            return headersMs;
+        }
+    }
+
+    /**
+     * 只有上游以「请求参数有问题」为由拒绝时才值得试着去掉 effort。
+     *
+     * <p>刻意不包含 5xx：那更可能是上游故障，重试一次只会给一个正在出问题的节点加倍压力。
+     * 也排除已经被归因成模型配置错误的那几个 code，省掉一次注定失败的往返。
+     */
+    private static boolean rejectsRequestParameters(UpstreamFailure failure) {
+        if (failure.httpStatus != 400 && failure.httpStatus != 422) return false;
+        return !"MODEL_NOT_FOUND".equals(failure.code) && !"MODEL_UNAVAILABLE".equals(failure.code)
+                && !"UPSTREAM_NOT_FOUND".equals(failure.code);
     }
 
     private long streamFromEndpoint(RelayEndpoint endpoint, RelayModel model, RelayProtocol protocol,
@@ -772,6 +926,7 @@ public class RelayProxyService implements DisposableBean {
                 }
                 case REASONING_DELTA -> {
                     if (event.text() == null || event.text().isEmpty()) break;
+                    state.sawReasoning = true;
                     state.markFirstOutput();
                     output.write(KiroProtocol.event(mapper, "reasoningContentEvent", Map.of("content", event.text())));
                 }
@@ -817,21 +972,28 @@ public class RelayProxyService implements DisposableBean {
         long previousCached = previous.path("prompt_tokens_details").path("cached_tokens").asLong(0);
         long previousCacheWrite = previous.path("prompt_tokens_details").path("cache_write_tokens").asLong(0);
         long previousOutput = previous.path("completion_tokens").asLong(0);
+        long previousReasoning = previous.path("completion_tokens_details").path("reasoning_tokens").asLong(0);
         long cached;
         long cacheWrite;
         long totalInput;
         long outputTokens;
+        // 思考 token 已经计入 output，这里单独留一份只为观测「档位到底有没有生效」。
+        long reasoningTokens;
         if (protocol == ProtocolCode.OPENAI_CHAT_COMPLETIONS) {
             totalInput = raw.path("prompt_tokens").asLong(previousTotal);
             cached = raw.path("prompt_tokens_details").path("cached_tokens").asLong(previousCached);
             cacheWrite = raw.path("prompt_tokens_details").path("cache_write_tokens").asLong(previousCacheWrite);
             outputTokens = raw.path("completion_tokens").asLong(previousOutput);
+            reasoningTokens = raw.path("completion_tokens_details").path("reasoning_tokens")
+                    .asLong(previousReasoning);
         } else if (protocol == ProtocolCode.OPENAI_RESPONSES) {
             totalInput = raw.path("input_tokens").asLong(previousTotal);
             cached = raw.path("input_tokens_details").path("cached_tokens").asLong(previousCached);
             cacheWrite = raw.path("input_tokens_details").path("cache_write_tokens").asLong(previousCacheWrite);
             outputTokens = raw.path("output_tokens").asLong(previousOutput);
+            reasoningTokens = raw.path("output_tokens_details").path("reasoning_tokens").asLong(previousReasoning);
         } else {
+            reasoningTokens = previousReasoning;
             long uncached = raw.path("input_tokens").asLong(Math.max(0, previousTotal - previousCached - previousCacheWrite));
             cached = raw.path("cache_read_input_tokens").asLong(previousCached);
             cacheWrite = raw.path("cache_creation_input_tokens").asLong(previousCacheWrite);
@@ -842,6 +1004,7 @@ public class RelayProxyService implements DisposableBean {
                 .put("completion_tokens", outputTokens).put("total_tokens", totalInput + outputTokens);
         usage.putObject("prompt_tokens_details").put("cached_tokens", cached)
                 .put("cache_write_tokens", cacheWrite);
+        usage.putObject("completion_tokens_details").put("reasoning_tokens", reasoningTokens);
         return usage;
     }
 
@@ -930,6 +1093,10 @@ public class RelayProxyService implements DisposableBean {
         private String finishReason;
         private long firstOutputNanos;
         private boolean done;
+        /** 本次真正发给上游的档位；被预剥离或降级后为 null。 */
+        private String sentEffort;
+        /** 是否收到过任何思考内容。Anthropic 不回传 reasoning token 计数，只能靠这个判断。 */
+        private boolean sawReasoning;
 
         private StreamState(long startedAt, String requestId, String requestedModelId, String platformModelId) {
             this.startedAt = startedAt;

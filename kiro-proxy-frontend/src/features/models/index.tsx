@@ -17,14 +17,19 @@ import {
   saveModel,
   saveModelPrice,
   setModelEnabled,
+  REASONING_LEVELS,
+  REASONING_LEVEL_PRESETS,
   type ModelPricing,
   type ModelView,
+  type ReasoningLevel,
 } from '@/lib/api/admin'
+import { t as translate, useTranslation, type TranslationKey } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -58,6 +63,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ConfigDrawer } from '@/components/config-drawer'
+import { LanguageSwitch } from '@/components/language-switch'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { PRICE_DECIMALS, PriceInput } from '@/components/price-input'
@@ -102,6 +108,7 @@ function nextPrice(prices: ModelPricing[], source: string) {
 }
 
 export function ModelsPage() {
+  const { t } = useTranslation()
   const client = useQueryClient()
   const models = useQuery({ queryKey: ['admin-models'], queryFn: listModels })
   const [creating, setCreating] = useState(false)
@@ -116,7 +123,9 @@ export function ModelsPage() {
     mutationFn: ({ modelId, enabled }: { modelId: string; enabled: boolean }) =>
       setModelEnabled(modelId, enabled),
     onSuccess: (model) => {
-      toast.success(model.enabled ? '模型已启用' : '模型已停用')
+      toast.success(
+        t(model.enabled ? 'models.toast.enabled' : 'models.toast.disabled')
+      )
       void client.invalidateQueries({ queryKey: ['admin-models'] })
     },
     onError: showError,
@@ -164,6 +173,7 @@ export function ModelsPage() {
     <>
       <Header>
         <div className='ms-auto flex items-center gap-2'>
+          <LanguageSwitch />
           <ThemeSwitch />
           <ConfigDrawer />
         </div>
@@ -171,19 +181,17 @@ export function ModelsPage() {
       <Main>
         <div className='mb-6 flex items-start justify-between gap-3'>
           <div>
-            <h1 className='text-2xl font-bold tracking-tight'>模型管理</h1>
-            <p className='text-muted-foreground'>
-              管理平台统一模型及官方参考价格
-            </p>
+            <h1 className='text-2xl font-bold tracking-tight'>
+              {t('models.title')}
+            </h1>
+            <p className='text-muted-foreground'>{t('models.description')}</p>
             <p className='mt-1 text-sm text-muted-foreground'>
-              拖动行首手柄调整模型顺序；手柄获得焦点后也可用 ↑ / ↓
-              微调。顺序保存时会
-              重新编号全部模型，因此存量的重复排序值不会影响结果。
+              {t('models.reorderHint')}
             </p>
           </div>
           <Button onClick={() => setCreating(true)}>
             <Plus />
-            新建模型
+            {t('models.create')}
           </Button>
         </div>
         {!!missingPrices.length && (
@@ -194,13 +202,15 @@ export function ModelsPage() {
             <AlertTriangle />
             <AlertTitle>
               {enabledWithoutPrice.length
-                ? `${enabledWithoutPrice.length} 个已启用模型缺少当前有效的官方参考价`
-                : `${missingPrices.length} 个模型尚未配置当前有效的官方参考价`}
+                ? t('models.alert.enabledMissingPrice', {
+                    count: enabledWithoutPrice.length,
+                  })
+                : t('models.alert.missingPrice', {
+                    count: missingPrices.length,
+                  })}
             </AlertTitle>
             <AlertDescription>
-              <p>
-                缺少价格的模型无法完成用量计费，请先配置输入、缓存和输出参考价，再启用模型。
-              </p>
+              <p>{t('models.alert.description')}</p>
               <Button
                 size='sm'
                 variant='outline'
@@ -208,7 +218,7 @@ export function ModelsPage() {
                 onClick={() => setDetails(missingPrices[0])}
               >
                 <CircleDollarSign />
-                配置官方参考价
+                {t('models.alert.action')}
               </Button>
             </AlertDescription>
           </Alert>
@@ -228,18 +238,20 @@ export function ModelsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className='w-10'>
-                      <span className='sr-only'>排序</span>
+                      <span className='sr-only'>{t('models.table.sort')}</span>
                     </TableHead>
-                    <TableHead>显示名称</TableHead>
+                    <TableHead>{t('models.table.displayName')}</TableHead>
                     <TableHead>Model ID</TableHead>
-                    <TableHead>状态</TableHead>
-                    <TableHead>输入价</TableHead>
-                    <TableHead>缓存读取</TableHead>
-                    <TableHead>缓存写入</TableHead>
-                    <TableHead>输出价</TableHead>
+                    <TableHead>{t('models.table.status')}</TableHead>
+                    <TableHead>{t('models.table.inputPrice')}</TableHead>
+                    <TableHead>{t('models.table.cacheRead')}</TableHead>
+                    <TableHead>{t('models.table.cacheWrite')}</TableHead>
+                    <TableHead>{t('models.table.outputPrice')}</TableHead>
                     <TableHead>Pricing Unit</TableHead>
-                    <TableHead>已关联中转站</TableHead>
-                    <TableHead className='text-right'>操作</TableHead>
+                    <TableHead>{t('models.table.boundRelays')}</TableHead>
+                    <TableHead className='text-right'>
+                      {t('models.table.actions')}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -276,7 +288,11 @@ export function ModelsPage() {
                           type='button'
                           draggable
                           disabled={reorder.isPending}
-                          aria-label={`调整“${model.displayName}”的顺序，当前第 ${index + 1} 位，共 ${rows.length} 个`}
+                          aria-label={t('models.table.reorderHandle', {
+                            name: model.displayName,
+                            position: index + 1,
+                            total: rows.length,
+                          })}
                           className='cursor-grab rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-50'
                           onDragStart={(event) => {
                             setDraggingId(model.modelId)
@@ -310,7 +326,7 @@ export function ModelsPage() {
                         <div className='font-medium'>{model.displayName}</div>
                         {!currentPrice(model) && (
                           <Badge variant='destructive' className='mt-1'>
-                            价格未配置
+                            {t('models.table.priceMissing')}
                           </Badge>
                         )}
                       </TableCell>
@@ -321,7 +337,11 @@ export function ModelsPage() {
                         <Badge
                           variant={model.enabled ? 'default' : 'secondary'}
                         >
-                          {model.enabled ? '启用' : '停用'}
+                          {t(
+                            model.enabled
+                              ? 'common.state.enabled'
+                              : 'common.state.disabled'
+                          )}
                         </Badge>
                       </TableCell>
                       {(
@@ -337,7 +357,7 @@ export function ModelsPage() {
                             `$${currentPrice(model)![key]}`
                           ) : (
                             <span className='font-medium text-destructive'>
-                              未配置
+                              {t('models.table.priceUnset')}
                             </span>
                           )}
                         </TableCell>
@@ -349,7 +369,11 @@ export function ModelsPage() {
                           <span className='text-destructive'>—</span>
                         )}
                       </TableCell>
-                      <TableCell>{model.bindings.length} 个中转站</TableCell>
+                      <TableCell>
+                        {t('models.table.relayCount', {
+                          count: model.bindings.length,
+                        })}
+                      </TableCell>
                       <TableCell>
                         <div className='flex justify-end gap-1'>
                           <Button
@@ -360,7 +384,11 @@ export function ModelsPage() {
                               setDetails(model)
                             }}
                           >
-                            {currentPrice(model) ? '详情' : '配置价格'}
+                            {t(
+                              currentPrice(model)
+                                ? 'models.table.details'
+                                : 'models.table.configurePrice'
+                            )}
                           </Button>
                           <Button
                             size='sm'
@@ -372,7 +400,7 @@ export function ModelsPage() {
                               const enabled = !model.enabled
                               if (enabled && !currentPrice(model)) {
                                 toast.error(
-                                  '请先配置当前有效的官方参考价，再启用模型'
+                                  t('models.toast.needPriceBeforeEnable')
                                 )
                                 setDetails(model)
                                 return
@@ -380,7 +408,9 @@ export function ModelsPage() {
                               if (
                                 enabled ||
                                 window.confirm(
-                                  `确定停用“${model.displayName}”吗？`
+                                  t('models.confirm.disable', {
+                                    name: model.displayName,
+                                  })
                                 )
                               )
                                 toggleEnabled.mutate({
@@ -389,7 +419,11 @@ export function ModelsPage() {
                                 })
                             }}
                           >
-                            {model.enabled ? '停用' : '启用'}
+                            {t(
+                              model.enabled
+                                ? 'common.action.disable'
+                                : 'common.action.enable'
+                            )}
                           </Button>
                         </div>
                       </TableCell>
@@ -430,6 +464,7 @@ function ModelDetailsDrawer({
   model: ModelView
   close: () => void
 }) {
+  const { t } = useTranslation()
   const client = useQueryClient()
   const [base, setBase] = useState({
     modelId: model.modelId,
@@ -438,6 +473,8 @@ function ModelDetailsDrawer({
     enabled: model.enabled,
     maxInputTokens: model.maxInputTokens,
     maxOutputTokens: model.maxOutputTokens,
+    reasoningLevels: model.reasoningLevels,
+    reasoningDefaultLevel: model.reasoningDefaultLevel,
   })
   const [prices, setPrices] = useState<ModelPricing[]>(
     sortPrices(model.referencePrices)
@@ -445,7 +482,7 @@ function ModelDetailsDrawer({
   const saveBase = useMutation({
     mutationFn: saveModel,
     onSuccess: () => {
-      toast.success('基础信息已保存')
+      toast.success(t('models.toast.basicSaved'))
       void client.invalidateQueries({ queryKey: ['admin-models'] })
     },
     onError: showError,
@@ -453,7 +490,7 @@ function ModelDetailsDrawer({
   const savePrice = useMutation({
     mutationFn: (value: ModelPricing) => saveModelPrice(model.modelId, value),
     onSuccess: (updated) => {
-      toast.success('官方参考价已保存')
+      toast.success(t('models.toast.priceSaved'))
       setPrices(sortPrices(updated.referencePrices))
       void client.invalidateQueries({ queryKey: ['admin-models'] })
     },
@@ -462,7 +499,7 @@ function ModelDetailsDrawer({
   const removePrice = useMutation({
     mutationFn: (id: number) => deleteModelPrice(model.modelId, id),
     onSuccess: (_, id) => {
-      toast.success('价格阶梯已删除')
+      toast.success(t('models.toast.tierDeleted'))
       setPrices((current) => current.filter((item) => item.id !== id))
       void client.invalidateQueries({ queryKey: ['admin-models'] })
     },
@@ -474,20 +511,20 @@ function ModelDetailsDrawer({
         <SheetHeader>
           <SheetTitle>{model.displayName}</SheetTitle>
           <SheetDescription>
-            {model.modelId} · 模型详情与官方参考价
+            {t('models.detail.subtitle', { modelId: model.modelId })}
           </SheetDescription>
         </SheetHeader>
         <div className='flex-1 space-y-6 overflow-y-auto px-4 pb-6'>
           <section className='space-y-3 rounded-lg border p-4'>
-            <h3 className='font-semibold'>基础信息</h3>
+            <h3 className='font-semibold'>{t('models.detail.basic')}</h3>
             <div className='grid gap-3 sm:grid-cols-2'>
               <Field label='Model ID'>
                 <Input disabled value={base.modelId} />
               </Field>
-              <Field label='显示名称（可选）'>
+              <Field label={t('models.field.displayNameOptional')}>
                 <Input
                   value={base.displayName}
-                  placeholder='留空时使用 Model ID'
+                  placeholder={t('models.field.displayNamePlaceholder')}
                   onChange={(e) =>
                     setBase({ ...base, displayName: e.target.value })
                   }
@@ -506,8 +543,8 @@ function ModelDetailsDrawer({
               <Field
                 label={
                   <LimitLabel
-                    label='最大上下文窗口'
-                    description='该模型可接收的最大上下文 Token 数。必须与实际上游模型能力一致，设置过大可能导致上游拒绝请求。'
+                    label={t('models.field.maxContextWindow')}
+                    description={t('models.field.maxContextWindowHelp')}
                   />
                 }
               >
@@ -522,7 +559,7 @@ function ModelDetailsDrawer({
                 label={
                   <LimitLabel
                     label='maxOutputTokens'
-                    description='单次回答允许的最大输出 Token 数，会传递到上游的 max_tokens 或 max_output_tokens。请勿超过上游限制。'
+                    description={t('models.field.maxOutputTokensHelp')}
                   />
                 }
               >
@@ -533,20 +570,27 @@ function ModelDetailsDrawer({
                   }
                 />
               </Field>
+              <ReasoningLevelsField
+                className='sm:col-span-2'
+                value={base}
+                onChange={(next) => setBase({ ...base, ...next })}
+              />
             </div>
             <Button
               size='sm'
               onClick={() => saveBase.mutate(base)}
               disabled={saveBase.isPending}
             >
-              保存基础信息
+              {t('models.detail.saveBasic')}
             </Button>
           </section>
           <section className='space-y-3 rounded-lg border p-4'>
             <div>
-              <h3 className='font-semibold'>官方价格</h3>
+              <h3 className='font-semibold'>
+                {t('models.detail.officialPricing')}
+              </h3>
               <p className='text-xs text-muted-foreground'>
-                仅写入 relay_model_pricing，不会修改中转站实际成本。
+                {t('models.detail.officialPricingHint')}
               </p>
             </div>
             <TieredPriceEditor
@@ -561,7 +605,7 @@ function ModelDetailsDrawer({
         </div>
         <SheetFooter>
           <Button variant='outline' onClick={close}>
-            关闭
+            {t('common.action.close')}
           </Button>
         </SheetFooter>
       </SheetContent>
@@ -584,6 +628,7 @@ function TieredPriceEditor({
   onDelete: (id: number) => void
   pending: boolean
 }) {
+  const { t, localeTag } = useTranslation()
   const update = (index: number, value: ModelPricing) =>
     onChange(prices.map((item, current) => (current === index ? value : item)))
   return (
@@ -592,14 +637,19 @@ function TieredPriceEditor({
         <div key={item.id ?? `new-${index}`} className='rounded-lg border p-3'>
           <div className='mb-3 flex items-center justify-between gap-3'>
             <div className='text-sm font-medium'>
-              阶梯 {index + 1}：{item.minInputTokens.toLocaleString()} –{' '}
-              {item.maxInputTokens?.toLocaleString() ?? '无上限'} Tokens
+              {t('models.pricing.tier', {
+                index: index + 1,
+                min: item.minInputTokens.toLocaleString(localeTag),
+                max:
+                  item.maxInputTokens?.toLocaleString(localeTag) ??
+                  t('models.pricing.noUpperLimit'),
+              })}
             </div>
             <Button
               type='button'
               size='icon'
               variant='ghost'
-              aria-label={`删除阶梯 ${index + 1}`}
+              aria-label={t('models.pricing.deleteTier', { index: index + 1 })}
               disabled={pending}
               onClick={() =>
                 item.id
@@ -622,7 +672,7 @@ function TieredPriceEditor({
             disabled={pending}
             onClick={() => onSave(item)}
           >
-            保存此阶梯
+            {t('models.pricing.saveTier')}
           </Button>
         </div>
       ))}
@@ -632,11 +682,11 @@ function TieredPriceEditor({
         disabled={pending}
         onClick={() => onChange([...prices, nextPrice(prices, source)])}
       >
-        <Plus /> 新增价格阶梯
+        <Plus /> {t('models.pricing.addTier')}
       </Button>
       {prices.length === 0 && (
         <p className='text-sm text-muted-foreground'>
-          尚未配置价格，请新增第一个阶梯。
+          {t('models.pricing.emptyTiers')}
         </p>
       )}
     </div>
@@ -644,19 +694,24 @@ function TieredPriceEditor({
 }
 
 function ModelDialog({ close }: { close: () => void }) {
+  const { t } = useTranslation()
   const client = useQueryClient()
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<
+    Parameters<typeof saveModel>[0] & ReasoningSelection
+  >({
     modelId: '',
     displayName: '',
     sortOrder: 0,
     enabled: false,
     maxInputTokens: 1_000_000,
     maxOutputTokens: 128_000,
+    reasoningLevels: [],
+    reasoningDefaultLevel: null,
   })
   const mutation = useMutation({
     mutationFn: saveModel,
     onSuccess: () => {
-      toast.success('模型已保存')
+      toast.success(t('models.toast.saved'))
       void client.invalidateQueries({ queryKey: ['admin-models'] })
       close()
     },
@@ -666,9 +721,9 @@ function ModelDialog({ close }: { close: () => void }) {
     <Dialog open onOpenChange={(v) => !v && close()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>新建模型</DialogTitle>
+          <DialogTitle>{t('models.create')}</DialogTitle>
           <DialogDescription>
-            模型 ID 是平台统一标识，创建后不可修改。
+            {t('models.createDialog.description')}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -678,23 +733,23 @@ function ModelDialog({ close }: { close: () => void }) {
             mutation.mutate(form)
           }}
         >
-          <Field label='模型 ID'>
+          <Field label={t('models.field.modelId')}>
             <Input
               required
               value={form.modelId}
               onChange={(e) => setForm({ ...form, modelId: e.target.value })}
             />
           </Field>
-          <Field label='显示名称（可选）'>
+          <Field label={t('models.field.displayNameOptional')}>
             <Input
               value={form.displayName}
-              placeholder='留空时使用 Model ID'
+              placeholder={t('models.field.displayNamePlaceholder')}
               onChange={(e) =>
                 setForm({ ...form, displayName: e.target.value })
               }
             />
           </Field>
-          <Field label='排序值'>
+          <Field label={t('models.field.sortOrder')}>
             <Input
               required
               type='number'
@@ -708,8 +763,8 @@ function ModelDialog({ close }: { close: () => void }) {
           <Field
             label={
               <LimitLabel
-                label='最大上下文窗口'
-                description='默认 1,000,000 Tokens。该值会作为模型 metadata 返回给 Kiro，决定上下文占用率和自动压缩时机。'
+                label={t('models.field.maxContextWindow')}
+                description={t('models.field.maxContextWindowCreateHelp')}
               />
             }
           >
@@ -724,7 +779,7 @@ function ModelDialog({ close }: { close: () => void }) {
             label={
               <LimitLabel
                 label='maxOutputTokens'
-                description='默认 128,000 Tokens。该值限制单次回答的最大输出长度，应与实际上游模型支持的最大输出一致。'
+                description={t('models.field.maxOutputTokensCreateHelp')}
               />
             }
           >
@@ -735,14 +790,20 @@ function ModelDialog({ close }: { close: () => void }) {
               }
             />
           </Field>
+          <ReasoningLevelsField
+            value={form}
+            onChange={(next) => setForm({ ...form, ...next })}
+          />
           <div className='rounded-md border border-dashed p-3 text-sm text-muted-foreground'>
-            新模型将以停用状态创建。创建后请配置官方参考价，再从模型列表启用。
+            {t('models.createDialog.hint')}
           </div>
           <DialogFooter>
             <Button type='button' variant='outline' onClick={close}>
-              取消
+              {t('common.action.cancel')}
             </Button>
-            <Button disabled={mutation.isPending}>保存</Button>
+            <Button disabled={mutation.isPending}>
+              {t('common.action.save')}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -759,30 +820,33 @@ function PriceForm({
   change: (v: ModelPricing) => void
   showDates?: boolean
 }) {
+  const { t } = useTranslation()
   const set = (key: keyof ModelPricing, v: unknown) =>
     change({ ...value, [key]: v })
   return (
     <div className='grid gap-3 sm:grid-cols-4'>
       <p className='text-xs text-muted-foreground sm:col-span-4'>
-        价格按定价 Token 单位计算；例如 $3 / 1,000,000 Tokens 请填写 3。最多支持{' '}
-        {PRICE_DECIMALS} 位小数。
+        {t('models.pricing.hint', { decimals: PRICE_DECIMALS })}
       </p>
       {(
         [
-          ['inputPrice', '输入价'],
-          ['cacheInputPrice', '缓存读取价'],
-          ['cacheWriteInputPrice', '缓存写入价'],
-          ['outputPrice', '输出价'],
-        ] as const
-      ).map(([key, label]) => (
-        <Field key={key} label={label}>
+          ['inputPrice', 'models.pricing.inputPrice'],
+          ['cacheInputPrice', 'models.pricing.cacheReadPrice'],
+          ['cacheWriteInputPrice', 'models.pricing.cacheWritePrice'],
+          ['outputPrice', 'models.pricing.outputPrice'],
+        ] as const satisfies readonly (readonly [
+          keyof ModelPricing,
+          TranslationKey,
+        ])[]
+      ).map(([key, labelKey]) => (
+        <Field key={key} label={t(labelKey)}>
           <PriceInput
             value={value[key]}
             onValueChange={(next) => set(key, next)}
           />
         </Field>
       ))}
-      <Field label='定价 Token 单位'>
+      <Field label={t('models.pricing.pricingUnit')}>
         <Input
           type='number'
           min={1}
@@ -790,7 +854,7 @@ function PriceForm({
           onChange={(e) => set('pricingUnit', Number(e.target.value))}
         />
       </Field>
-      <Field label='价格来源'>
+      <Field label={t('models.pricing.priceSource')}>
         <Input
           value={value.priceSource}
           onChange={(e) => set('priceSource', e.target.value)}
@@ -799,7 +863,7 @@ function PriceForm({
       <Field label='Currency'>
         <Input disabled value='USD' />
       </Field>
-      <Field label='最小输入 Tokens'>
+      <Field label={t('models.pricing.minInputTokens')}>
         <TokenInput
           value={value.minInputTokens}
           onValueChange={(next) => set('minInputTokens', next ?? 0)}
@@ -830,7 +894,7 @@ function PriceForm({
           </Field>
         </>
       )}
-      <Field label='最大输入 Tokens'>
+      <Field label={t('models.pricing.maxInputTokens')}>
         <TokenInput
           nullable
           value={value.maxInputTokens}
@@ -842,7 +906,7 @@ function PriceForm({
           checked={value.enabled}
           onCheckedChange={(v) => set('enabled', v)}
         />
-        <Label>价格启用</Label>
+        <Label>{t('models.pricing.priceEnabled')}</Label>
       </div>
     </div>
   )
@@ -862,6 +926,7 @@ function LimitLabel({
   label: string
   description: string
 }) {
+  const { t } = useTranslation()
   return (
     <span className='inline-flex items-center gap-1.5'>
       {label}
@@ -869,7 +934,7 @@ function LimitLabel({
         <TooltipTrigger asChild>
           <button
             type='button'
-            aria-label={`查看${label}说明`}
+            aria-label={t('models.field.viewHelp', { label })}
             className='text-amber-600 hover:text-amber-700'
           >
             <CircleAlert className='size-4' />
@@ -886,19 +951,149 @@ function LimitLabel({
 function Field({
   label,
   children,
+  className,
 }: {
   label: React.ReactNode
   children: React.ReactNode
+  className?: string
 }) {
   return (
-    <div>
+    <div className={className}>
       <Label className='mb-2'>{label}</Label>
       {children}
     </div>
   )
 }
+
+/** 档位的显示文案与 Kiro 自身一致：xhigh → xHigh，其余首字母大写。 */
+function reasoningLabel(level: ReasoningLevel) {
+  return level === 'xhigh'
+    ? 'xHigh'
+    : level.charAt(0).toUpperCase() + level.slice(1)
+}
+
+type ReasoningSelection = {
+  reasoningLevels: ReasoningLevel[]
+  reasoningDefaultLevel: ReasoningLevel | null
+}
+
+/**
+ * 推理强度档位配置。
+ *
+ * 全不选 = 该模型不支持思考强度，Kiro 输入框右下角那个下拉框就不会出现。
+ * 预设按钮只是省一次查文档，不构成运行时约束 —— 上游到底认不认由请求链路自动兜底。
+ */
+function ReasoningLevelsField({
+  value,
+  onChange,
+  className,
+}: {
+  value: ReasoningSelection
+  onChange: (next: ReasoningSelection) => void
+  className?: string
+}) {
+  const { t } = useTranslation()
+  const { reasoningLevels: levels, reasoningDefaultLevel: defaultLevel } = value
+
+  const apply = (next: ReasoningLevel[]) => {
+    const ordered = REASONING_LEVELS.filter((level) => next.includes(level))
+    onChange({
+      reasoningLevels: ordered,
+      // 默认档位必须留在已选集合里，否则后端会直接拒绝这次保存。
+      reasoningDefaultLevel:
+        defaultLevel && ordered.includes(defaultLevel) ? defaultLevel : null,
+    })
+  }
+
+  return (
+    <div className={className}>
+      <Label className='mb-2'>{t('models.reasoning.label')}</Label>
+      <div className='space-y-3 rounded-md border p-3'>
+        <div className='flex flex-wrap items-center gap-2'>
+          <span className='text-xs text-muted-foreground'>
+            {t('models.reasoning.preset')}
+          </span>
+          {(['openai', 'claude', 'all'] as const).map((preset) => (
+            <Button
+              key={preset}
+              type='button'
+              size='sm'
+              variant='outline'
+              onClick={() => apply([...REASONING_LEVEL_PRESETS[preset]])}
+            >
+              {t(`models.reasoning.preset_${preset}`)}
+            </Button>
+          ))}
+          <Button
+            type='button'
+            size='sm'
+            variant='ghost'
+            onClick={() =>
+              onChange({ reasoningLevels: [], reasoningDefaultLevel: null })
+            }
+          >
+            {t('models.reasoning.presetClear')}
+          </Button>
+        </div>
+        <div className='flex flex-wrap gap-x-4 gap-y-2'>
+          {REASONING_LEVELS.map((level) => (
+            <label key={level} className='flex items-center gap-2 text-sm'>
+              <Checkbox
+                checked={levels.includes(level)}
+                onCheckedChange={() =>
+                  apply(
+                    levels.includes(level)
+                      ? levels.filter((item) => item !== level)
+                      : [...levels, level]
+                  )
+                }
+              />
+              {reasoningLabel(level)}
+            </label>
+          ))}
+        </div>
+        {levels.length > 0 && (
+          <div>
+            <Label className='mb-2 text-xs text-muted-foreground'>
+              {t('models.reasoning.defaultLabel')}
+            </Label>
+            <select
+              className='h-10 w-full rounded-md border border-input bg-background px-3 text-sm'
+              value={defaultLevel ?? ''}
+              onChange={(event) =>
+                onChange({
+                  reasoningLevels: levels,
+                  reasoningDefaultLevel:
+                    (event.target.value as ReasoningLevel) || null,
+                })
+              }
+            >
+              <option value=''>
+                {t('models.reasoning.defaultAuto', {
+                  level: reasoningLabel(levels[0]),
+                })}
+              </option>
+              {levels.map((level) => (
+                <option key={level} value={level}>
+                  {reasoningLabel(level)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <p className='text-xs leading-relaxed text-muted-foreground'>
+          {levels.length === 0
+            ? t('models.reasoning.helpDisabled')
+            : t('models.reasoning.help')}
+        </p>
+      </div>
+    </div>
+  )
+}
 function message(error: unknown) {
-  return error instanceof Error ? error.message : '请求失败'
+  return error instanceof Error
+    ? error.message
+    : translate('common.error.requestFailed')
 }
 function showError(error: unknown) {
   toast.error(message(error))

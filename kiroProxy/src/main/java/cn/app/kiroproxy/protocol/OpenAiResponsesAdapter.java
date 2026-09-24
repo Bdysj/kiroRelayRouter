@@ -52,6 +52,11 @@ public final class OpenAiResponsesAdapter implements ProtocolAdapter {
         }
         if (!instructions.isEmpty()) result.put("instructions", instructions.toString());
         if (canonical.path("temperature").isNumber()) result.set("temperature", canonical.path("temperature"));
+        // Responses 协议把强度放在 reasoning.effort 下，而不是 Chat Completions 的顶层参数。
+        if (canonical.path(ReasoningEffort.CANONICAL_FIELD).isTextual()) {
+            result.putObject("reasoning").put("effort",
+                    canonical.path(ReasoningEffort.CANONICAL_FIELD).asText());
+        }
         if (canonical.path("tools").isArray() && !canonical.path("tools").isEmpty()) {
             ArrayNode tools = result.putArray("tools");
             for (JsonNode tool : canonical.path("tools")) {

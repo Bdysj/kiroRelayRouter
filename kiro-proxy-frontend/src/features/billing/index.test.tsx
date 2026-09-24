@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { render } from 'vitest-browser-react'
+import { useI18nStore } from '@/lib/i18n'
 import {
   DonutChart,
   LineChart,
@@ -10,6 +11,11 @@ import {
 } from './index'
 
 describe('billing trend charts', () => {
+  beforeEach(() => {
+    // 断言用的是中文文案，显式固定语言。
+    useI18nStore.getState().setLocale('zh')
+  })
+
   it('renders a visible marker when a line series contains only one day', async () => {
     await render(
       <LineChart

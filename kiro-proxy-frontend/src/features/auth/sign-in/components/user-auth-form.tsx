@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -7,6 +7,7 @@ import { Loader2, LockKeyhole, LogIn, UserRound } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuthStore } from '@/stores/auth-store'
 import { loginAdmin } from '@/lib/api/admin'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -20,10 +21,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/password-input'
 
-const formSchema = z.object({
-  username: z.string().trim().min(1, '请输入管理员账号'),
-  password: z.string().min(1, '请输入管理员密码'),
-})
+type FormValues = { username: string; password: string }
 
 const adminRoutes = [
   '/relays',
@@ -63,8 +61,19 @@ export function UserAuthForm({
   const [isLoading, setIsLoading] = useState(false)
   const navigate = useNavigate()
   const { auth } = useAuthStore()
+  const { t } = useTranslation()
 
-  const form = useForm<z.infer<typeof formSchema>>({
+  // 校验文案跟随语言，所以 schema 要在组件内随语言重建。
+  const formSchema = useMemo(
+    () =>
+      z.object({
+        username: z.string().trim().min(1, t('auth.signIn.usernameRequired')),
+        password: z.string().min(1, t('auth.signIn.passwordRequired')),
+      }),
+    [t]
+  )
+
+  const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       username: '',
@@ -72,7 +81,7 @@ export function UserAuthForm({
     },
   })
 
-  async function onSubmit(data: z.infer<typeof formSchema>) {
+  async function onSubmit(data: FormValues) {
     setIsLoading(true)
     try {
       const result = await loginAdmin(data.username, data.password)
@@ -83,10 +92,12 @@ export function UserAuthForm({
         role: ['admin'],
         exp: new Date(result.expiresAt).getTime(),
       })
-      toast.success('登录成功')
+      toast.success(t('auth.signIn.success'))
       await navigate({ to: resolveAdminRedirect(redirectTo), replace: true })
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '登录失败')
+      toast.error(
+        error instanceof Error ? error.message : t('auth.signIn.failed')
+      )
     } finally {
       setIsLoading(false)
     }
@@ -106,13 +117,13 @@ export function UserAuthForm({
             <FormItem>
               <FormLabel className='text-sm font-semibold'>
                 <UserRound className='size-4' />
-                管理员账号
+                {t('auth.signIn.username')}
               </FormLabel>
               <FormControl>
                 <Input
                   className='h-11 rounded-lg px-4 text-sm shadow-none'
                   autoComplete='username'
-                  placeholder='请输入账号'
+                  placeholder={t('auth.signIn.usernamePlaceholder')}
                   {...field}
                 />
               </FormControl>
@@ -127,13 +138,13 @@ export function UserAuthForm({
             <FormItem className='relative'>
               <FormLabel className='text-sm font-semibold'>
                 <LockKeyhole className='size-4' />
-                密码
+                {t('auth.signIn.password')}
               </FormLabel>
               <FormControl>
                 <PasswordInput
                   className='[&_button]:right-2 [&_button]:size-7 [&_input]:h-11 [&_input]:rounded-lg [&_input]:pr-11 [&_input]:pl-4 [&_input]:text-sm [&_input]:shadow-none'
                   autoComplete='current-password'
-                  placeholder='请输入密码'
+                  placeholder={t('auth.signIn.passwordPlaceholder')}
                   {...field}
                 />
               </FormControl>
@@ -146,7 +157,7 @@ export function UserAuthForm({
           disabled={isLoading}
         >
           {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
-          登录
+          {t('auth.signIn.submit')}
         </Button>
       </form>
     </Form>

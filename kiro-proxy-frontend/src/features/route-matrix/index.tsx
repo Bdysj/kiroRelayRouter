@@ -5,21 +5,28 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { Layers3, Loader2, Search, Trash2 } from 'lucide-react'
+import { CircleAlert, Layers3, Loader2, Search, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   bulkUpdateRoutes,
   bulkRemoveRouteBindings,
+  listReasoningAlerts,
   listRelayUpstreamModels,
   listModels,
   listRelays,
   removeRouteBinding,
+  resolveReasoningAlert,
   saveRouteBinding,
   type ModelBinding,
   type ModelPricing,
   type ModelView,
   type RelayView,
 } from '@/lib/api/admin'
+import {
+  t as translateOutsideComponent,
+  useTranslation,
+  type TranslationKey,
+} from '@/lib/i18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -53,6 +60,7 @@ import {
 } from '@/components/ui/table'
 import { ConfigDrawer } from '@/components/config-drawer'
 import { ConfirmDialog } from '@/components/confirm-dialog'
+import { LanguageSwitch } from '@/components/language-switch'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { PRICE_DECIMALS, PriceInput } from '@/components/price-input'
@@ -103,6 +111,7 @@ function nextPrice(prices: ModelPricing[]) {
 }
 
 export function RouteMatrixPage() {
+  const { t } = useTranslation()
   const client = useQueryClient()
   const models = useQuery({ queryKey: ['admin-models'], queryFn: listModels })
   const relays = useQuery({
@@ -179,6 +188,7 @@ export function RouteMatrixPage() {
     <>
       <Header>
         <div className='ms-auto flex items-center gap-2'>
+          <LanguageSwitch />
           <ThemeSwitch />
           <ConfigDrawer />
         </div>
@@ -186,23 +196,26 @@ export function RouteMatrixPage() {
       <Main className='max-w-none'>
         <div className='mb-6 flex flex-wrap items-start justify-between gap-3'>
           <div>
-            <h1 className='text-2xl font-bold tracking-tight'>模型路由矩阵</h1>
+            <h1 className='text-2xl font-bold tracking-tight'>
+              {t('routeMatrix.title')}
+            </h1>
             <p className='text-muted-foreground'>
-              统一管理 Relay × Model 支持关系、调度覆盖和实际成本价
+              {t('routeMatrix.description')}
             </p>
           </div>
           <Button disabled={!selected.length} onClick={() => setBulkOpen(true)}>
             <Layers3 />
-            批量操作
+            {t('routeMatrix.bulkAction')}
           </Button>
         </div>
+        <ReasoningAlerts />
         <Card className='mb-4'>
           <CardContent className='flex flex-wrap items-center gap-3 p-4'>
             <div className='relative min-w-64 flex-1'>
               <Search className='absolute top-2.5 left-3 size-4 text-muted-foreground' />
               <Input
                 className='pl-9'
-                placeholder='搜索 Model ID / 模型名称'
+                placeholder={t('routeMatrix.filter.searchPlaceholder')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -210,26 +223,24 @@ export function RouteMatrixPage() {
             <Select
               value={protocolStrategy}
               change={setProtocolStrategy}
-              label='全部协议策略'
-              options={[
-                ['AUTO', '自动混合协议'],
-                ['OPENAI_SMART', 'OpenAI 智能协议'],
-                ['ANTHROPIC_SMART', 'Claude 智能协议'],
-              ]}
+              label={t('routeMatrix.filter.allStrategies')}
+              options={(
+                ['AUTO', 'OPENAI_SMART', 'ANTHROPIC_SMART'] as const
+              ).map((strategy) => [strategy, t(protocolStrategyKey(strategy))])}
             />
             <Select
               value={relayId}
               change={setRelayId}
-              label='全部中转站'
+              label={t('routeMatrix.filter.allRelays')}
               options={(relays.data ?? []).map((r) => [String(r.id), r.name])}
             />
             <Select
               value={status}
               change={setStatus}
-              label='全部模型'
+              label={t('routeMatrix.filter.allModels')}
               options={[
-                ['true', '已启用'],
-                ['false', '已停用'],
+                ['true', t('common.state.enabled')],
+                ['false', t('common.state.disabled')],
               ]}
             />
             <label className='flex items-center gap-2 text-sm'>
@@ -237,7 +248,7 @@ export function RouteMatrixPage() {
                 checked={boundOnly}
                 onCheckedChange={(v) => setBoundOnly(v === true)}
               />
-              仅显示已绑定
+              {t('routeMatrix.filter.boundOnly')}
             </label>
           </CardContent>
         </Card>
@@ -258,14 +269,16 @@ export function RouteMatrixPage() {
                         )
                       }
                     />{' '}
-                    <span className='ml-2'>模型</span>
+                    <span className='ml-2'>{t('routeMatrix.table.model')}</span>
                   </TableHead>
-                  <TableHead className='min-w-48'>官方参考价</TableHead>
+                  <TableHead className='min-w-48'>
+                    {t('routeMatrix.table.officialPrice')}
+                  </TableHead>
                   {visibleRelays.map((relay) => (
                     <TableHead key={relay.id} className='min-w-56'>
                       <div>{relay.name}</div>
                       <div className='font-normal text-muted-foreground'>
-                        {protocolStrategyLabel(relay.protocolStrategy)} ·{' '}
+                        {t(protocolStrategyKey(relay.protocolStrategy))} ·{' '}
                         <Health
                           enabled={relay.enabled}
                           status={relay.healthStatus}
@@ -310,7 +323,7 @@ export function RouteMatrixPage() {
                             <div>Output ${official.outputPrice}</div>
                           </>
                         ) : (
-                          '未配置'
+                          t('routeMatrix.table.notConfigured')
                         )}
                       </TableCell>
                       {visibleRelays.map((relay) => {
@@ -334,7 +347,9 @@ export function RouteMatrixPage() {
                                           : 'secondary'
                                       }
                                     >
-                                      {binding.enabled ? '已启用' : '已禁用'}
+                                      {binding.enabled
+                                        ? t('common.state.enabled')
+                                        : t('common.state.disabled')}
                                     </Badge>
                                     <RouteStatus
                                       model={model}
@@ -352,7 +367,9 @@ export function RouteMatrixPage() {
                                   <div className='mt-1 text-xs text-muted-foreground'>
                                     {binding.costPrices.length > 1 && (
                                       <div>
-                                        {binding.costPrices.length} 个价格阶梯
+                                        {t('routeMatrix.table.tiers', {
+                                          count: binding.costPrices.length,
+                                        })}
                                       </div>
                                     )}
                                     Input: $
@@ -370,7 +387,8 @@ export function RouteMatrixPage() {
                                 </>
                               ) : (
                                 <span className='text-sm text-muted-foreground'>
-                                  未绑定 <b className='text-primary'>+</b>
+                                  {t('routeMatrix.table.unbound')}{' '}
+                                  <b className='text-primary'>+</b>
                                 </span>
                               )}
                             </button>
@@ -415,6 +433,7 @@ function RouteDrawer({
   close: () => void
   saved: () => void
 }) {
+  const { t, localeTag } = useTranslation()
   const { model, relay } = cell
   const official = activePrice(model)
   const upstreamModels = useQuery({
@@ -437,6 +456,7 @@ function RouteDrawer({
           enabled: true,
           priorityOverride: null,
           weightOverride: null,
+          reasoningEnabled: null,
           costPrices: [price()],
           protocolStrategy: relay.protocolStrategy,
           protocols: null,
@@ -445,7 +465,7 @@ function RouteDrawer({
   const save = useMutation({
     mutationFn: () => saveRouteBinding(model.modelId, relay.id, form),
     onSuccess: () => {
-      toast.success('路由与价格已保存')
+      toast.success(t('routeMatrix.toast.saved'))
       saved()
       close()
     },
@@ -454,7 +474,7 @@ function RouteDrawer({
   const remove = useMutation({
     mutationFn: () => removeRouteBinding(model.modelId, relay.id),
     onSuccess: () => {
-      toast.success('绑定已删除')
+      toast.success(t('routeMatrix.toast.removed'))
       saved()
       close()
     },
@@ -473,11 +493,13 @@ function RouteDrawer({
           <SheetTitle>
             {model.displayName} → {relay.name}
           </SheetTitle>
-          <SheetDescription>编辑单个 Relay × Model 关系</SheetDescription>
+          <SheetDescription>
+            {t('routeMatrix.drawer.description')}
+          </SheetDescription>
         </SheetHeader>
         <div className='flex-1 space-y-5 overflow-y-auto px-4 pb-6'>
-          <Box title='模型映射'>
-            <Field label='平台 Model ID'>
+          <Box title={t('routeMatrix.drawer.mapping')}>
+            <Field label={t('routeMatrix.drawer.platformModelId')}>
               <Input disabled value={model.modelId} />
             </Field>
             <Field label='Upstream Model ID'>
@@ -498,16 +520,16 @@ function RouteDrawer({
             </Field>
             {upstreamModels.isLoading && (
               <p className='text-xs text-muted-foreground'>
-                正在读取上游模型列表…
+                {t('routeMatrix.drawer.upstreamLoading')}
               </p>
             )}
             {upstreamModels.isError && (
               <p className='text-xs text-destructive'>
-                无法读取上游模型列表，请检查中转站连接。
+                {t('routeMatrix.drawer.upstreamError')}
               </p>
             )}
             {upstreamModels.data && (
-              <Field label='上游实际可用模型'>
+              <Field label={t('routeMatrix.drawer.upstreamAvailable')}>
                 <select
                   className='h-9 w-full rounded-md border border-input bg-background px-3 text-sm'
                   value={
@@ -522,7 +544,9 @@ function RouteDrawer({
                     setForm({ ...form, upstreamModelId: event.target.value })
                   }
                 >
-                  <option value=''>请选择上游返回的 Model ID</option>
+                  <option value=''>
+                    {t('routeMatrix.drawer.upstreamSelect')}
+                  </option>
                   {upstreamModels.data.map((item) => (
                     <option key={item.modelId} value={item.modelId}>
                       {item.modelId}
@@ -536,8 +560,7 @@ function RouteDrawer({
                 (item) => item.modelId === form.upstreamModelId
               ) && (
                 <p className='text-xs text-destructive'>
-                  当前 Upstream Model ID
-                  不在该中转站返回的模型列表中，请从输入框建议项中选择有效 ID。
+                  {t('routeMatrix.drawer.upstreamInvalid')}
                 </p>
               )}
             <label className='flex items-center gap-2'>
@@ -548,13 +571,15 @@ function RouteDrawer({
               <Label>Enabled</Label>
             </label>
           </Box>
-          <Box title='调度'>
+          <Box title={t('routeMatrix.drawer.scheduling')}>
             <div className='grid gap-3 sm:grid-cols-2'>
               <Field label='Priority Override'>
                 <Input
                   type='number'
                   min={0}
-                  placeholder={`留空 = 默认 ${relay.priority}`}
+                  placeholder={t('routeMatrix.drawer.inheritPlaceholder', {
+                    value: relay.priority,
+                  })}
                   value={form.priorityOverride ?? ''}
                   onChange={(e) =>
                     setForm({
@@ -569,7 +594,9 @@ function RouteDrawer({
                 <Input
                   type='number'
                   min={1}
-                  placeholder={`留空 = 默认 ${relay.weight}`}
+                  placeholder={t('routeMatrix.drawer.inheritPlaceholder', {
+                    value: relay.weight,
+                  })}
                   value={form.weightOverride ?? ''}
                   onChange={(e) =>
                     setForm({
@@ -582,21 +609,66 @@ function RouteDrawer({
               </Field>
             </div>
             <p className='text-xs text-muted-foreground'>
-              中转站默认 Priority = {relay.priority}，Weight = {relay.weight}
+              {t('routeMatrix.drawer.relayDefaults', {
+                priority: relay.priority,
+                weight: relay.weight,
+              })}
             </p>
           </Box>
-          <Box title='协议路由'>
+          <Box title={t('routeMatrix.reasoning.title')}>
+            <Field label={t('routeMatrix.reasoning.decisionLabel')}>
+              <select
+                className='h-10 w-full rounded-md border border-input bg-background px-3 text-sm'
+                value={
+                  form.reasoningEnabled === null
+                    ? 'auto'
+                    : form.reasoningEnabled
+                      ? 'supported'
+                      : 'unsupported'
+                }
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    reasoningEnabled:
+                      event.target.value === 'auto'
+                        ? null
+                        : event.target.value === 'supported',
+                  })
+                }
+              >
+                <option value='auto'>
+                  {t('routeMatrix.reasoning.decisionAuto')}
+                </option>
+                <option value='supported'>
+                  {t('routeMatrix.reasoning.decisionSupported')}
+                </option>
+                <option value='unsupported'>
+                  {t('routeMatrix.reasoning.decisionUnsupported')}
+                </option>
+              </select>
+            </Field>
+            <p className='text-xs leading-relaxed text-muted-foreground'>
+              {t(
+                form.reasoningEnabled === null
+                  ? 'routeMatrix.reasoning.hintAuto'
+                  : form.reasoningEnabled
+                    ? 'routeMatrix.reasoning.hintSupported'
+                    : 'routeMatrix.reasoning.hintUnsupported'
+              )}
+            </p>
+          </Box>
+          <Box title={t('routeMatrix.drawer.protocolRouting')}>
             <div className='rounded-md bg-muted/40 p-3 text-sm'>
               <div>
-                协议策略：
-                <b>{protocolStrategyLabel(relay.protocolStrategy)}</b>
+                {t('routeMatrix.drawer.strategyLabel')}
+                <b>{t(protocolStrategyKey(relay.protocolStrategy))}</b>
               </div>
               <div className='mt-1 text-xs text-muted-foreground'>
-                可用协议：
+                {t('routeMatrix.drawer.availableProtocols')}
                 {relay.protocols
                   .filter((item) => item.enabled)
                   .map((item) => protocolLabel(item.code))
-                  .join(' · ') || '无'}
+                  .join(' · ') || t('common.state.none')}
               </div>
             </div>
             <label className='flex items-center gap-2'>
@@ -618,11 +690,11 @@ function RouteDrawer({
                   })
                 }
               />
-              <Label>自定义模型协议</Label>
+              <Label>{t('routeMatrix.drawer.customProtocols')}</Label>
             </label>
             {form.protocols === null ? (
               <p className='text-xs text-muted-foreground'>
-                当前继承中转站协议策略与能力，无需重复配置。
+                {t('routeMatrix.drawer.inheritProtocols')}
               </p>
             ) : (
               <div className='space-y-2'>
@@ -659,7 +731,7 @@ function RouteDrawer({
                           </span>
                         </span>
                       </label>
-                      <Field label='优先级'>
+                      <Field label={t('routeMatrix.drawer.protocolPriority')}>
                         <Input
                           type='number'
                           min={0}
@@ -686,7 +758,7 @@ function RouteDrawer({
               </div>
             )}
           </Box>
-          <Box title='实际中转价格'>
+          <Box title={t('routeMatrix.drawer.costTitle')}>
             <label className='mb-3 flex items-center gap-2'>
               <Switch
                 checked={form.costPrices.length > 0}
@@ -694,7 +766,7 @@ function RouteDrawer({
                   setForm({ ...form, costPrices: v ? [price()] : [] })
                 }
               />
-              <Label>配置实际成本</Label>
+              <Label>{t('routeMatrix.drawer.configureCost')}</Label>
             </label>
             {form.costPrices.length > 0 && (
               <TieredCostForm
@@ -703,20 +775,23 @@ function RouteDrawer({
               />
             )}
           </Box>
-          <Box title='官方参考与价格优势'>
+          <Box title={t('routeMatrix.drawer.officialTitle')}>
             {official ? (
               <div className='grid grid-cols-2 gap-2 text-sm'>
                 <div>Input ${official.inputPrice}</div>
                 <div>Cache ${official.cacheInputPrice}</div>
                 <div>Output ${official.outputPrice}</div>
-                <div>Unit /{official.pricingUnit.toLocaleString()}</div>
+                <div>
+                  Unit /{official.pricingUnit.toLocaleString(localeTag)}
+                </div>
                 {ratio !== null && (
                   <>
                     <div>
-                      中转成本相对官方：<b>{ratio.toFixed(1)}%</b>
+                      {t('routeMatrix.drawer.ratio')}
+                      <b>{ratio.toFixed(1)}%</b>
                     </div>
                     <div>
-                      当前价格优势：
+                      {t('routeMatrix.drawer.advantage')}
                       <b
                         className={
                           ratio <= 100 ? 'text-emerald-600' : 'text-destructive'
@@ -729,7 +804,7 @@ function RouteDrawer({
                 )}
               </div>
             ) : (
-              '尚未配置官方参考价'
+              t('routeMatrix.drawer.noOfficial')
             )}
           </Box>
         </div>
@@ -737,14 +812,14 @@ function RouteDrawer({
           <div className='flex gap-2'>
             {cell.binding && (
               <Button variant='destructive' onClick={() => remove.mutate()}>
-                删除绑定
+                {t('routeMatrix.drawer.removeBinding')}
               </Button>
             )}
             <Button variant='outline' onClick={close}>
-              取消
+              {t('common.action.cancel')}
             </Button>
             <Button disabled={save.isPending} onClick={() => save.mutate()}>
-              保存
+              {t('common.action.save')}
             </Button>
           </div>
         </SheetFooter>
@@ -766,6 +841,7 @@ function BulkDialog({
   close: () => void
   saved: () => void
 }) {
+  const { t } = useTranslation()
   const [relay, setRelay] = useState(String(relays[0]?.id ?? ''))
   const [operation, setOperation] = useState<'update' | 'unbind'>('update')
   const [confirmUnbind, setConfirmUnbind] = useState(false)
@@ -799,10 +875,15 @@ function BulkDialog({
           : 0
       if (invalidCount > 0) {
         toast.warning(
-          `已更新 ${modelIds.length} 个模型关系，其中 ${invalidCount} 个需要配置有效的上游 Model ID`
+          t('routeMatrix.toast.bulkUpdatedWithInvalid', {
+            count: modelIds.length,
+            invalid: invalidCount,
+          })
         )
       } else {
-        toast.success(`已更新 ${modelIds.length} 个模型关系`)
+        toast.success(
+          t('routeMatrix.toast.bulkUpdated', { count: modelIds.length })
+        )
       }
       saved()
       close()
@@ -816,7 +897,7 @@ function BulkDialog({
         configurationId: Number(relay),
       }),
     onSuccess: ({ removed }) => {
-      toast.success(`已解绑 ${removed} 个模型关系`)
+      toast.success(t('routeMatrix.toast.bulkUnbound', { count: removed }))
       setConfirmUnbind(false)
       saved()
       close()
@@ -829,14 +910,13 @@ function BulkDialog({
       <Dialog open onOpenChange={(v) => !v && close()}>
         <DialogContent className='max-h-[90vh] overflow-y-auto sm:max-w-3xl'>
           <DialogHeader>
-            <DialogTitle>批量操作模型路由</DialogTitle>
+            <DialogTitle>{t('routeMatrix.bulk.title')}</DialogTitle>
             <DialogDescription>
-              已选 {models.length}{' '}
-              个模型。批量修改会自动创建未绑定关系；批量解绑只删除目标中转站已有的绑定。
+              {t('routeMatrix.bulk.description', { count: models.length })}
             </DialogDescription>
           </DialogHeader>
           <div className='grid gap-4 sm:grid-cols-2'>
-            <Field label='操作类型'>
+            <Field label={t('routeMatrix.bulk.operation')}>
               <select
                 className='h-9 w-full rounded-md border bg-background px-3 text-sm'
                 value={operation}
@@ -844,11 +924,15 @@ function BulkDialog({
                   setOperation(e.target.value as 'update' | 'unbind')
                 }
               >
-                <option value='update'>批量绑定 / 修改</option>
-                <option value='unbind'>批量解绑</option>
+                <option value='update'>
+                  {t('routeMatrix.bulk.operationUpdate')}
+                </option>
+                <option value='unbind'>
+                  {t('routeMatrix.bulk.operationUnbind')}
+                </option>
               </select>
             </Field>
-            <Field label='目标中转站'>
+            <Field label={t('routeMatrix.bulk.targetRelay')}>
               <select
                 className='h-9 w-full rounded-md border bg-background px-3 text-sm'
                 value={relay}
@@ -862,20 +946,22 @@ function BulkDialog({
               </select>
             </Field>
             {operation === 'update' && (
-              <Field label='关系状态'>
+              <Field label={t('routeMatrix.bulk.bindingStatus')}>
                 <select
                   className='h-9 w-full rounded-md border bg-background px-3 text-sm'
                   value={enabled}
                   onChange={(e) => setEnabled(e.target.value)}
                 >
-                  <option value='true'>启用</option>
-                  <option value='false'>停用</option>
-                  <option value=''>保持不变</option>
+                  <option value='true'>{t('common.action.enable')}</option>
+                  <option value='false'>{t('common.action.disable')}</option>
+                  <option value=''>
+                    {t('routeMatrix.bulk.keepUnchanged')}
+                  </option>
                 </select>
               </Field>
             )}
             {operation === 'update' && (
-              <Field label='Priority Override（留空=继承）'>
+              <Field label={t('routeMatrix.bulk.priorityOverride')}>
                 <Input
                   type='number'
                   min={0}
@@ -885,7 +971,7 @@ function BulkDialog({
               </Field>
             )}
             {operation === 'update' && (
-              <Field label='Weight Override（留空=继承）'>
+              <Field label={t('routeMatrix.bulk.weightOverride')}>
                 <Input
                   type='number'
                   min={1}
@@ -899,19 +985,21 @@ function BulkDialog({
             <>
               <label className='flex items-center gap-2'>
                 <Switch checked={withPrice} onCheckedChange={setWithPrice} />
-                <Label>批量复制同一组实际成本阶梯价</Label>
+                <Label>{t('routeMatrix.bulk.copyCost')}</Label>
               </label>
               {withPrice && <TieredCostForm values={costs} change={setCosts} />}
             </>
           ) : (
             <div className='rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm'>
-              当前选择中有 <strong>{boundCount}</strong> 个模型已绑定到“
-              {relayName}”。 未绑定的模型会被跳过。
+              {t('routeMatrix.bulk.unbindNotice', {
+                count: boundCount,
+                relay: relayName,
+              })}
             </div>
           )}
           <DialogFooter>
             <Button variant='outline' onClick={close}>
-              取消
+              {t('common.action.cancel')}
             </Button>
             <Button
               variant={operation === 'unbind' ? 'destructive' : 'default'}
@@ -929,8 +1017,8 @@ function BulkDialog({
             >
               {operation === 'unbind' && <Trash2 />}
               {operation === 'unbind'
-                ? `批量解绑（${boundCount}）`
-                : '确认批量更新'}
+                ? t('routeMatrix.bulk.unbindWithCount', { count: boundCount })
+                : t('routeMatrix.bulk.confirmUpdate')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -938,10 +1026,17 @@ function BulkDialog({
       <ConfirmDialog
         open={confirmUnbind}
         onOpenChange={setConfirmUnbind}
-        title='确认批量解绑模型？'
-        desc={`将从“${relayName}”解绑 ${boundCount} 个模型，并删除这些绑定下的成本价和协议覆盖。其他中转站绑定不受影响。`}
-        cancelBtnText='取消'
-        confirmText={unbind.isPending ? '正在解绑…' : '确认解绑'}
+        title={t('routeMatrix.bulk.confirmUnbindTitle')}
+        desc={t('routeMatrix.bulk.confirmUnbindDesc', {
+          relay: relayName,
+          count: boundCount,
+        })}
+        cancelBtnText={t('common.action.cancel')}
+        confirmText={
+          unbind.isPending
+            ? t('routeMatrix.bulk.unbinding')
+            : t('routeMatrix.bulk.confirmUnbind')
+        }
         destructive
         isLoading={unbind.isPending}
         handleConfirm={() => unbind.mutate()}
@@ -957,6 +1052,7 @@ function TieredCostForm({
   values: ModelPricing[]
   change: (values: ModelPricing[]) => void
 }) {
+  const { t, localeTag } = useTranslation()
   const update = (index: number, value: ModelPricing) =>
     change(values.map((item, current) => (current === index ? value : item)))
   return (
@@ -965,14 +1061,21 @@ function TieredCostForm({
         <div key={value.id ?? `new-${index}`} className='rounded-lg border p-3'>
           <div className='mb-3 flex items-center justify-between gap-3'>
             <div className='text-sm font-medium'>
-              阶梯 {index + 1}：{value.minInputTokens.toLocaleString()} –{' '}
-              {value.maxInputTokens?.toLocaleString() ?? '无上限'} Tokens
+              {t('routeMatrix.cost.tierTitle', {
+                index: index + 1,
+                min: value.minInputTokens.toLocaleString(localeTag),
+                max:
+                  value.maxInputTokens?.toLocaleString(localeTag) ??
+                  t('routeMatrix.cost.noMaximum'),
+              })}
             </div>
             <Button
               type='button'
               size='icon'
               variant='ghost'
-              aria-label={`删除成本阶梯 ${index + 1}`}
+              aria-label={t('routeMatrix.cost.removeTier', {
+                index: index + 1,
+              })}
               onClick={() =>
                 change(values.filter((_, current) => current !== index))
               }
@@ -988,7 +1091,7 @@ function TieredCostForm({
         variant='outline'
         onClick={() => change([...values, nextPrice(values)])}
       >
-        新增成本阶梯
+        {t('routeMatrix.cost.addTier')}
       </Button>
     </div>
   )
@@ -1001,13 +1104,13 @@ function CostForm({
   value: ModelPricing
   change: (v: ModelPricing) => void
 }) {
+  const { t } = useTranslation()
   const set = (k: keyof ModelPricing, v: unknown) =>
     change({ ...value, [k]: v })
   return (
     <div className='grid gap-3 sm:grid-cols-4'>
       <p className='text-xs text-muted-foreground sm:col-span-4'>
-        价格按 Pricing Unit 计价；例如 $3 / 1,000,000 Tokens 请填写
-        3。支持小数，最多 {PRICE_DECIMALS} 位（例如 0.000000075）。
+        {t('routeMatrix.cost.hint', { decimals: PRICE_DECIMALS })}
       </p>
       {(
         [
@@ -1130,7 +1233,13 @@ function Select({
   )
 }
 function Health({ enabled, status }: { enabled: boolean; status: string }) {
-  if (!enabled) return <span className='text-muted-foreground'>已停用</span>
+  const { t } = useTranslation()
+  if (!enabled)
+    return (
+      <span className='text-muted-foreground'>
+        {t('common.state.disabled')}
+      </span>
+    )
   return (
     <span
       className={
@@ -1141,17 +1250,19 @@ function Health({ enabled, status }: { enabled: boolean; status: string }) {
             : 'text-muted-foreground'
       }
     >
-      {status === 'UP' ? '正常' : status === 'DOWN' ? '异常' : '未知'}
+      {status === 'UP'
+        ? t('common.state.normal')
+        : status === 'DOWN'
+          ? t('common.state.abnormal')
+          : t('common.state.unknown')}
     </span>
   )
 }
 
-function protocolStrategyLabel(strategy: RelayView['protocolStrategy']) {
-  return {
-    AUTO: '自动混合协议',
-    OPENAI_SMART: 'OpenAI 智能协议',
-    ANTHROPIC_SMART: 'Claude 智能协议',
-  }[strategy]
+function protocolStrategyKey(
+  strategy: RelayView['protocolStrategy']
+): TranslationKey {
+  return `routeMatrix.strategy.${strategy}`
 }
 
 function protocolLabel(code: RelayView['protocols'][number]['code']) {
@@ -1160,6 +1271,90 @@ function protocolLabel(code: RelayView['protocols'][number]['code']) {
     OPENAI_RESPONSES: 'Responses',
     ANTHROPIC_MESSAGES: 'Anthropic Messages',
   }[code]
+}
+
+/**
+ * 推理强度不生效的路由告警。
+ *
+ * 两级严重度刻意用不同颜色和不同措辞：REJECTED 是已确认的事实（上游明确拒绝，请求
+ * 已自动降级，用户无感知），IGNORED 只是怀疑（也可能是模型自己判断不需要思考）。
+ * 混成一条会让管理员拿着不确定的信号去做确定的配置动作。
+ */
+function ReasoningAlerts() {
+  const { t, localeTag } = useTranslation()
+  const client = useQueryClient()
+  const alerts = useQuery({
+    queryKey: ['reasoning-alerts'],
+    queryFn: () => listReasoningAlerts(true),
+  })
+  const resolve = useMutation({
+    mutationFn: resolveReasoningAlert,
+    onSuccess: () => {
+      toast.success(t('routeMatrix.reasoning.alertResolved'))
+      void client.invalidateQueries({ queryKey: ['reasoning-alerts'] })
+    },
+    onError: fail,
+  })
+  const rows = alerts.data ?? []
+  if (!rows.length) return null
+
+  return (
+    <Card className='mb-4 border-amber-300 dark:border-amber-900'>
+      <CardContent className='space-y-3 p-4'>
+        <div className='flex items-center gap-2 text-sm font-semibold'>
+          <CircleAlert className='size-4 text-amber-600' />
+          {t('routeMatrix.reasoning.alertTitle', { count: rows.length })}
+        </div>
+        {rows.map((alert) => {
+          const confirmed = alert.kind === 'REJECTED'
+          return (
+            <div
+              key={alert.id}
+              className={`flex flex-wrap items-start justify-between gap-3 rounded-md border p-3 text-sm ${
+                confirmed
+                  ? 'border-orange-200 bg-orange-50 dark:bg-orange-950/25'
+                  : 'bg-muted/40'
+              }`}
+            >
+              <div className='min-w-0'>
+                <div className='font-medium'>
+                  {t(
+                    confirmed
+                      ? 'routeMatrix.reasoning.alertRejected'
+                      : 'routeMatrix.reasoning.alertIgnored',
+                    {
+                      model: alert.modelDisplayName ?? alert.modelId,
+                      relay: alert.relayName ?? `#${alert.configurationId}`,
+                      count: alert.sourceCount,
+                    }
+                  )}
+                </div>
+                <div className='mt-1 text-xs text-muted-foreground'>
+                  {alert.protocolCode} · {alert.upstreamModelId} ·{' '}
+                  {new Date(alert.lastSeenAt).toLocaleString(localeTag)}
+                </div>
+                <div className='mt-1 text-xs text-muted-foreground'>
+                  {t(
+                    confirmed
+                      ? 'routeMatrix.reasoning.alertRejectedAdvice'
+                      : 'routeMatrix.reasoning.alertIgnoredAdvice'
+                  )}
+                </div>
+              </div>
+              <Button
+                size='sm'
+                variant='outline'
+                disabled={resolve.isPending}
+                onClick={() => resolve.mutate(alert.id)}
+              >
+                {t('routeMatrix.reasoning.alertDismiss')}
+              </Button>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
+  )
 }
 
 function RouteStatus({
@@ -1173,34 +1368,35 @@ function RouteStatus({
   binding: ModelBinding
   catalog?: UpstreamCatalog
 }) {
-  let label = '正常'
+  const { t } = useTranslation()
+  let label: TranslationKey = 'common.state.normal'
   let className = 'text-emerald-600'
   if (!relay.enabled) {
-    label = '中转停用'
+    label = 'routeMatrix.status.relayDisabled'
     className = 'text-muted-foreground'
   } else if (!binding.enabled) {
-    label = '路由停用'
+    label = 'routeMatrix.status.routeDisabled'
     className = 'text-muted-foreground'
   } else if (!model.enabled) {
-    label = '模型停用'
+    label = 'routeMatrix.status.modelDisabled'
     className = 'text-muted-foreground'
   } else if (model.accessGroupCount === 0) {
-    label = '未设分组'
+    label = 'routeMatrix.status.noAccessGroup'
     className = 'text-amber-600'
   } else if (relay.healthStatus === 'DOWN') {
-    label = '中转异常'
+    label = 'routeMatrix.status.relayDown'
     className = 'text-destructive'
   } else if (catalog?.loading) {
-    label = '读取模型列表'
+    label = 'routeMatrix.status.catalogLoading'
     className = 'text-muted-foreground'
   } else if (!catalog || catalog.error) {
-    label = '模型列表异常'
+    label = 'routeMatrix.status.catalogError'
     className = 'text-destructive'
   } else if (!catalog.modelIds.has(binding.upstreamModelId)) {
-    label = '模型异常'
+    label = 'routeMatrix.status.modelMissing'
     className = 'text-destructive'
   }
-  return <span className={className}>{label}</span>
+  return <span className={className}>{t(label)}</span>
 }
 function activePrice(model: ModelView) {
   const now = Date.now()
@@ -1229,5 +1425,9 @@ function local(value: string | null) {
     .slice(0, 16)
 }
 function fail(error: unknown) {
-  toast.error(error instanceof Error ? error.message : '操作失败')
+  toast.error(
+    error instanceof Error
+      ? error.message
+      : translateOutsideComponent('routeMatrix.toast.actionFailed')
+  )
 }

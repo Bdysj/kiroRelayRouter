@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig } from 'axios'
 import { useAuthStore } from '@/stores/auth-store'
+import { t } from '@/lib/i18n'
 
 const adminHttp = axios.create({
   baseURL:
@@ -33,7 +34,7 @@ async function adminRequest<T>(config: AxiosRequestConfig): Promise<T> {
     return response.data
   } catch (error) {
     if (!axios.isAxiosError(error)) {
-      throw new AdminApiError('请求失败', null)
+      throw new AdminApiError(t('common.error.requestFailed'), null)
     }
     const status = error.response?.status ?? null
     const body = error.response?.data as
@@ -54,7 +55,9 @@ async function adminRequest<T>(config: AxiosRequestConfig): Promise<T> {
     throw new AdminApiError(
       body?.message ??
         body?.error ??
-        (status ? `请求失败（HTTP ${status}）` : '请求超时或网络异常'),
+        (status
+          ? t('common.error.requestFailedWithStatus', { status })
+          : t('common.error.timeoutOrNetwork')),
       status
     )
   }
@@ -298,6 +301,12 @@ export type ModelBinding = {
   enabled: boolean
   priorityOverride: number | null
   weightOverride: number | null
+  /**
+   * 这条路由是否支持推理强度。三态：
+   * null = 自动（跟随运行期学到的结果）、false = 确认不支持（永不下发）、
+   * true = 确认支持（忽略自动标记，用于纠正误判）。
+   */
+  reasoningEnabled: boolean | null
   costPrices: ModelPricing[]
   protocolStrategy?: ProtocolStrategy
   protocols: ModelProtocolBinding[] | null
@@ -310,6 +319,33 @@ export type ModelProtocolBinding = {
   capabilities: Record<string, boolean> | null
 }
 
+/**
+ * 推理强度档位。线上值必须小写：Kiro 自己做显示层转换（xhigh → xHigh，其余首字母大写），
+ * 顺序即强度顺序，后端的降级阶梯依赖这个次序。
+ */
+export const REASONING_LEVELS = [
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+] as const
+
+export type ReasoningLevel = (typeof REASONING_LEVELS)[number]
+
+/**
+ * 新建/配置模型时的档位预设，纯粹是省一次查文档，不构成运行时约束 ——
+ * 上游到底认不认，由请求链路的自动兜底来兜。
+ */
+export const REASONING_LEVEL_PRESETS: Record<
+  'openai' | 'claude' | 'all',
+  ReasoningLevel[]
+> = {
+  openai: ['low', 'medium', 'high', 'xhigh'],
+  claude: ['low', 'medium', 'high', 'max'],
+  all: ['low', 'medium', 'high', 'xhigh', 'max'],
+}
+
 export type ModelView = {
   modelId: string
   displayName: string
@@ -317,6 +353,10 @@ export type ModelView = {
   enabled: boolean
   maxInputTokens: number
   maxOutputTokens: number
+  /** 向 Kiro 声明的推理强度档位；为空表示该模型不显示档位下拉框。 */
+  reasoningLevels: ReasoningLevel[]
+  /** 档位下拉框的默认选中项，必须在 reasoningLevels 里；留空则取最低档。 */
+  reasoningDefaultLevel: ReasoningLevel | null
   accessGroupCount: number
   referencePrices: ModelPricing[]
   bindings: ModelBinding[]
@@ -335,6 +375,8 @@ export function saveModel(
     | 'enabled'
     | 'maxInputTokens'
     | 'maxOutputTokens'
+    | 'reasoningLevels'
+    | 'reasoningDefaultLevel'
   >
 ) {
   return adminRequest<ModelView>({
@@ -424,6 +466,47 @@ export function removeRouteBinding(modelId: string, configurationId: number) {
   return adminRequest<void>({
     method: 'DELETE',
     url: `/admin/routes/${configurationId}/${encodeURIComponent(modelId)}`,
+  })
+}
+
+/**
+ * 推理强度不生效的路由告警。
+ *
+ * `REJECTED` 是已确认的事实（上游明确拒绝、请求已自动降级），
+ * `IGNORED` 只是怀疑（请求了中高档位却没产生 reasoning token，也可能是模型自己判断
+ * 不需要思考）。两级严重度必须在界面上分开，否则管理员会拿不确定的信号做确定的动作。
+ */
+export type ReasoningAlertKind = 'REJECTED' | 'IGNORED'
+
+export type ReasoningAlertView = {
+  id: number
+  configurationId: number
+  relayName: string | null
+  modelId: string
+  modelDisplayName: string | null
+  protocolCode: ProtocolCode
+  upstreamModelId: string
+  kind: ReasoningAlertKind
+  /** 触发该告警的独立 Token 数，用于区分单用户异常与普遍现象。 */
+  sourceCount: number
+  firstSeenAt: string
+  lastSeenAt: string
+  resolvedAt: string | null
+  routeReasoningEnabled: boolean | null
+}
+
+export function listReasoningAlerts(openOnly = true) {
+  return adminRequest<ReasoningAlertView[]>({
+    method: 'GET',
+    url: '/admin/routes/reasoning-alerts',
+    params: { openOnly },
+  })
+}
+
+export function resolveReasoningAlert(id: number) {
+  return adminRequest<void>({
+    method: 'POST',
+    url: `/admin/routes/reasoning-alerts/${id}/resolve`,
   })
 }
 

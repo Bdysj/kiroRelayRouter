@@ -32,6 +32,21 @@ kiroRelayRouter 把多个上游 AI 中转服务聚合成一条可调度、可计
 
 > **定位说明**：这是一个可以直接跑起来的完整架构样本，适合中小团队当成"多上游 AI 网关 + 计量计费"的参考实现来读、来改、来压测。它不隶属于 Amazon Web Services 或 Kiro，也不是它们的产品。
 
+<table>
+  <tr>
+    <td width="50%"><img src="./docs/imgs/Dashboard.png" alt="中转站管理：上游 API、协议策略与健康状态" /></td>
+    <td width="50%"><img src="./docs/imgs/ModelsSetting.png" alt="模型管理：官方参考价与推理强度档位配置" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="./docs/imgs/RoutingMatrix.png" alt="模型路由矩阵：单条 Relay × Model 关系的实际成本与调度覆盖" /></td>
+    <td width="50%"><img src="./docs/imgs/billing.png" alt="用量与账单：按分组、Token、模型统计的调用与结算数据" /></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="./docs/imgs/pluginsMain.png" alt="Kiro 扩展控制面板：Token 登录、设备绑定与积分余额" /></td>
+    <td width="50%"><img src="./docs/imgs/pluginsExample.png" alt="Kiro 扩展在 IDE 扩展面板中的展示" /></td>
+  </tr>
+</table>
+
 ---
 
 ## 目录
@@ -341,7 +356,7 @@ charged_points    = provider_cost_usd × points_per_usd × billing_multiplier
 | 模型管理 | 对外模型条目、启用开关、拖拽排序（后端按步长 10 重编号）、输入/输出 token 上限、模型参考价维护 |
 | 模型路由矩阵与价格 | `模型 × 中转站` 二维矩阵，并发拉取每个上游的真实模型目录做绑定校验；单格绑定编辑（上游别名、优先级/权重覆盖、分档成本价）、解绑、多选批量绑定与批量解绑 |
 | 访问分组与计费 | 分组 CRUD 与汇总卡、按模型勾选授权并设置计费倍率、Token 单张与批量签发（CSV 导出）、查看明文、机器绑定上限与解绑次数的单条/批量修改、状态流转 ACTIVE/DISABLED/REVOKED、归档与可控硬删除 |
-| 积分与计费规则 | `1 USD = N 积分` 的带版本规则、历史版本分页、计算逻辑说明，内嵌**销售套餐利润模拟器**（付款额 / 赠送积分 / 平台倍率 / 上游套餐价与额度 → 预计成本、利润、毛利率、倍率覆盖率） |
+| 积分与计费规则 | `1 USD = N 积分` 的带版本规则、历史版本分页、计算逻辑说明 |
 | 用量与账单 | 日期区间 + 中转站筛选，按分组 / 按 Token / 请求流水三个视图；请求数、token 数、上游成本 USD、扣费积分、已结算与异常数；每日曲线与模型占比。图表全部自研 SVG（平滑面积图 / 堆叠柱 / 环图 / 折线 / sparkline），**零图表库依赖** |
 | 教程管理 | 分类 CRUD、文章草稿 / 发布 / 隐藏 / 同分类内排序 / 删除；tiptap 富文本编辑器，图片上传到 R2（草稿阶段用 `uploadSessionId` 关联未落库文章） |
 | 公开教程页 | `/` 与 `/docs` 免鉴权，DOMPurify 消毒后渲染，目录锚点跳转与滚动高亮 |

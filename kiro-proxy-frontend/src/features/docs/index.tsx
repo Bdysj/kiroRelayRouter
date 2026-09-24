@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import DOMPurify from 'dompurify'
 import { BookOpen, Loader2, Menu, X } from 'lucide-react'
 import { getPublicDocs, type DocCategory } from '@/lib/api/docs'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -13,9 +14,11 @@ import {
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
+import { LanguageSwitch } from '@/components/language-switch'
 import { ThemeSwitch } from '@/components/theme-switch'
 
 export function DocsPage() {
+  const { t } = useTranslation()
   const docs = useQuery({ queryKey: ['public-docs'], queryFn: getPublicDocs })
   const [selectedArticle, setSelectedArticle] = useState(() =>
     decodeURIComponent(window.location.hash.slice(1))
@@ -37,18 +40,11 @@ export function DocsPage() {
   )
 
   useEffect(() => {
-    document.title = 'Kiro RelayRouter 使用教程'
-    setMeta(
-      'description',
-      'Kiro RelayRouter 安装、Token 登录、模型选择和 Kiro Agent 使用指南。'
-    )
-    setMeta('og:title', 'Kiro RelayRouter 使用教程', true)
-    setMeta(
-      'og:description',
-      'Kiro RelayRouter 安装、Token 登录、模型选择和 Kiro Agent 使用指南。',
-      true
-    )
-  }, [])
+    document.title = t('docs.meta.title')
+    setMeta('description', t('docs.meta.description'))
+    setMeta('og:title', t('docs.meta.title'), true)
+    setMeta('og:description', t('docs.meta.description'), true)
+  }, [t])
 
   useEffect(() => {
     if (!articles.length) return
@@ -135,15 +131,16 @@ export function DocsPage() {
             <span>Kiro RelayRouter</span>
           </a>
           <span className='ml-4 hidden border-l pl-4 text-sm text-muted-foreground sm:inline'>
-            使用教程
+            {t('docs.subtitle')}
           </span>
           <nav className='ml-auto flex items-center gap-1 sm:gap-3'>
             <a
               href='/docs'
               className='hidden px-2 text-sm font-medium sm:block'
             >
-              教程
+              {t('docs.nav.guides')}
             </a>
+            <LanguageSwitch />
             <ThemeSwitch />
           </nav>
         </div>
@@ -153,13 +150,13 @@ export function DocsPage() {
           <Sheet open={drawerOpen} onOpenChange={setDrawerOpen}>
             <SheetTrigger asChild>
               <Button variant='outline' size='sm'>
-                <Menu className='size-4' /> 目录
+                <Menu className='size-4' /> {t('docs.toc.trigger')}
               </Button>
             </SheetTrigger>
             <SheetContent side='left' className='w-[86%] max-w-80 gap-0 p-0'>
               <SheetHeader className='border-b px-5 py-5 text-left'>
-                <SheetTitle>教程目录</SheetTitle>
-                <SheetDescription>选择章节快速定位</SheetDescription>
+                <SheetTitle>{t('docs.toc.label')}</SheetTitle>
+                <SheetDescription>{t('docs.toc.description')}</SheetDescription>
               </SheetHeader>
               <div className='overflow-y-auto px-4 py-5'>
                 <DocsNavigation
@@ -195,14 +192,16 @@ export function DocsPage() {
           >
             {docs.isLoading && (
               <div className='flex items-center gap-2 py-24 text-sm text-muted-foreground'>
-                <Loader2 className='size-4 animate-spin' /> 正在加载教程…
+                <Loader2 className='size-4 animate-spin' /> {t('docs.loading')}
               </div>
             )}
             {docs.isError && (
               <div className='rounded-xl border p-6'>
-                <h1 className='text-xl font-semibold'>暂时无法加载教程</h1>
+                <h1 className='text-xl font-semibold'>
+                  {t('docs.error.title')}
+                </h1>
                 <p className='mt-2 text-sm text-muted-foreground'>
-                  请确认后端服务已启动，然后刷新页面。
+                  {t('docs.error.description')}
                 </p>
               </div>
             )}
@@ -212,10 +211,10 @@ export function DocsPage() {
                   Kiro RelayRouter
                 </p>
                 <h1 className='mt-3 text-3xl font-semibold tracking-tight sm:text-4xl'>
-                  使用教程
+                  {t('docs.subtitle')}
                 </h1>
                 <p className='mt-5 max-w-xl text-base leading-8 text-muted-foreground'>
-                  教程内容正在整理中，管理员发布后将在这里自动展示。
+                  {t('docs.empty.description')}
                 </p>
               </div>
             )}
@@ -248,7 +247,7 @@ export function DocsPage() {
       {lightbox && (
         <button
           type='button'
-          aria-label='关闭图片预览'
+          aria-label={t('docs.lightbox.close')}
           className='fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center bg-black/85 p-5'
           onClick={() => setLightbox(null)}
         >
@@ -273,8 +272,10 @@ function DocsNavigation({
   active: string
   onSelect: (slug: string) => void
 }) {
+  const { t } = useTranslation()
+
   return (
-    <nav aria-label='教程目录' className='space-y-7'>
+    <nav aria-label={t('docs.toc.label')} className='space-y-7'>
       {sections.map((section) => {
         const sectionActive = section.children.some(
           (article) => article.slug === active

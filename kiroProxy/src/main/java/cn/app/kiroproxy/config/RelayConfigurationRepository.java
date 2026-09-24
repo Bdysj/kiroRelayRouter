@@ -3,6 +3,7 @@ package cn.app.kiroproxy.config;
 import cn.app.kiroproxy.protocol.ProtocolCode;
 import cn.app.kiroproxy.protocol.ProtocolCapability;
 import cn.app.kiroproxy.protocol.ProtocolStrategy;
+import cn.app.kiroproxy.protocol.ReasoningEffort;
 import cn.app.kiroproxy.protocol.RelayProtocol;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,11 +38,14 @@ public class RelayConfigurationRepository {
     public RelayConfiguration get() {
         List<RelayModel> models = jdbc.query(
                 """
-                select model_id, display_name, max_input_tokens, max_output_tokens
+                select model_id, display_name, max_input_tokens, max_output_tokens,
+                  reasoning_levels, reasoning_default_level
                 from relay_model where enabled = true order by sort_order, model_id
                 """,
                 (result, row) -> new RelayModel(result.getString("model_id"), result.getString("display_name"),
-                        result.getLong("max_input_tokens"), result.getLong("max_output_tokens")));
+                        result.getLong("max_input_tokens"), result.getLong("max_output_tokens"),
+                        ReasoningEffort.parseList(result.getString("reasoning_levels")),
+                        ReasoningEffort.parse(result.getString("reasoning_default_level")).orElse(null)));
         PublicState state = jdbc.queryForObject("""
                 select case when count(*) filter (where enabled=true) > 0 then true else false end enabled,
                   case when count(*) filter (where enabled=true and trim(api_key)<>'') > 0 then true else false end key_configured
@@ -89,7 +93,8 @@ public class RelayConfigurationRepository {
         Map<Long, Set<String>> models = new LinkedHashMap<>();
         Map<Long, Map<String, RelayEndpoint.ModelRoute>> routes = new LinkedHashMap<>();
         jdbc.query("""
-                select configuration_id, model_id, upstream_model_id, priority_override, weight_override
+                select configuration_id, model_id, upstream_model_id, priority_override, weight_override,
+                  reasoning_enabled
                 from relay_configuration_model where enabled=true order by configuration_id, model_id
                 """, (RowCallbackHandler) result -> {
             long configurationId = result.getLong("configuration_id");
@@ -98,7 +103,8 @@ public class RelayConfigurationRepository {
             routes.computeIfAbsent(configurationId, ignored -> new LinkedHashMap<>()).put(modelId,
                     new RelayEndpoint.ModelRoute(result.getString("upstream_model_id"),
                             (Integer) result.getObject("priority_override"),
-                            (Integer) result.getObject("weight_override")));
+                            (Integer) result.getObject("weight_override"),
+                            (Boolean) result.getObject("reasoning_enabled")));
         });
         Map<Long, List<RelayProtocol>> protocols = protocolMap();
         Map<Long, Map<String, List<RelayProtocol>>> modelProtocols = modelProtocolMap();

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, type RenderResult } from 'vitest-browser-react'
 import { userEvent } from 'vitest/browser'
+import { useI18nStore } from '@/lib/i18n'
 import { SearchProvider } from '@/context/search-provider'
 
 const COMMAND_MENU_PLACEHOLDER = 'Type a command or search...'
@@ -58,6 +59,8 @@ async function openCommandPalette(
 describe('SearchProvider and CommandMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // 断言用的是英文文案，显式固定语言。
+    useI18nStore.getState().setLocale('en')
   })
 
   it('renders the command palette when the palette is open', async () => {
@@ -73,7 +76,7 @@ describe('SearchProvider and CommandMenu', () => {
     await expect.element(getByText('Light')).toBeInTheDocument()
     await expect.element(getByText('Dark')).toBeInTheDocument()
     await expect.element(getByText('System')).toBeInTheDocument()
-    await expect.element(getByText('中转站管理')).toBeInTheDocument()
+    await expect.element(getByText('Relays')).toBeInTheDocument()
   })
 
   it('does not show the dialog content when search is closed', async () => {
@@ -109,7 +112,7 @@ describe('SearchProvider and CommandMenu', () => {
 
     await openCommandPalette(screen)
 
-    await userEvent.click(screen.getByText('模型管理'))
+    await userEvent.click(screen.getByText('Models'))
 
     expect(mocks.navigate).toHaveBeenCalledWith({ to: '/models' })
     await expect

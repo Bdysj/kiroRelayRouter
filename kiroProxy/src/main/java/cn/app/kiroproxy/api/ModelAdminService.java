@@ -1,10 +1,14 @@
 package cn.app.kiroproxy.api;
 
+import cn.app.kiroproxy.config.ReasoningAlertRepository;
+import cn.app.kiroproxy.config.ReasoningSupportService;
+import cn.app.kiroproxy.protocol.ReasoningEffort;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,19 +19,31 @@ public class ModelAdminService {
     public static final int SORT_ORDER_STEP = 10;
 
     private final JdbcTemplate jdbc;
+    private final ReasoningSupportService reasoningSupport;
+    private final ReasoningAlertRepository reasoningAlerts;
 
-    public ModelAdminService(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    public ModelAdminService(JdbcTemplate jdbc,
+                             ObjectProvider<ReasoningSupportService> reasoningSupport,
+                             ObjectProvider<ReasoningAlertRepository> reasoningAlerts) {
+        this.jdbc = jdbc;
+        this.reasoningSupport = reasoningSupport.getIfAvailable();
+        this.reasoningAlerts = reasoningAlerts.getIfAvailable();
+    }
 
     public List<ModelView> list() {
         return jdbc.query("""
                 select m.model_id, m.display_name, m.sort_order, m.enabled,
-                  m.max_input_tokens, m.max_output_tokens,
+                  m.max_input_tokens, m.max_output_tokens, m.reasoning_levels, m.reasoning_default_level,
                   (select count(*) from relay_access_group_model gm where gm.model_id=m.model_id) access_group_count
                 from relay_model m order by m.sort_order, m.model_id
                 """,
                 (rs, row) -> new ModelView(rs.getString("model_id"), rs.getString("display_name"),
                         rs.getInt("sort_order"), rs.getBoolean("enabled"), rs.getLong("max_input_tokens"),
                         rs.getLong("max_output_tokens"),
+                        ReasoningEffort.parseList(rs.getString("reasoning_levels")).stream()
+                                .map(ReasoningEffort::wire).toList(),
+                        ReasoningEffort.parse(rs.getString("reasoning_default_level"))
+                                .map(ReasoningEffort::wire).orElse(null),
                         rs.getInt("access_group_count"),
                         prices(rs.getString("model_id")), bindings(rs.getString("model_id"))));
     }
@@ -43,16 +59,17 @@ public class ModelAdminService {
         requireCurrentPriceWhenEnabling(id, request.enabled());
         String name = request.displayName() == null || request.displayName().isBlank()
                 ? id : request.displayName().trim();
+        String reasoningLevels = String.join(",", request.reasoningLevels());
         int changed = jdbc.update("""
                 update relay_model set display_name=?, sort_order=?, enabled=?, max_input_tokens=?,
-                  max_output_tokens=? where model_id=?
+                  max_output_tokens=?, reasoning_levels=?, reasoning_default_level=? where model_id=?
                 """, name, request.sortOrder(), request.enabled(), request.maxInputTokens(),
-                request.maxOutputTokens(), id);
+                request.maxOutputTokens(), reasoningLevels, request.reasoningDefaultLevel(), id);
         if (changed == 0) jdbc.update("""
                 insert into relay_model(model_id, display_name, sort_order, enabled, max_input_tokens,
-                  max_output_tokens) values (?,?,?,?,?,?)
+                  max_output_tokens, reasoning_levels, reasoning_default_level) values (?,?,?,?,?,?,?,?)
                 """, id, name, request.sortOrder(), request.enabled(), request.maxInputTokens(),
-                request.maxOutputTokens());
+                request.maxOutputTokens(), reasoningLevels, request.reasoningDefaultLevel());
         return get(id);
     }
 
@@ -214,18 +231,31 @@ public class ModelAdminService {
     private void upsertBinding(String modelId, BindingRequest value) {
         String upstream = value.upstreamModelId() == null || value.upstreamModelId().isBlank()
                 ? modelId : clean(value.upstreamModelId(), "上游模型 ID");
+        Boolean previousDecision = jdbc.query("""
+                select reasoning_enabled from relay_configuration_model
+                where configuration_id=? and model_id=?
+                """, rs -> rs.next() ? (Boolean) rs.getObject("reasoning_enabled") : null,
+                value.configurationId(), modelId);
         int changed = jdbc.update("""
                 update relay_configuration_model set upstream_model_id=?,enabled=?,priority_override=?,
-                  weight_override=?,updated_at=current_timestamp where configuration_id=? and model_id=?
+                  weight_override=?,reasoning_enabled=?,updated_at=current_timestamp
+                where configuration_id=? and model_id=?
                 """, upstream, value.enabled(), value.priorityOverride(), value.weightOverride(),
-                value.configurationId(), modelId);
+                value.reasoningEnabled(), value.configurationId(), modelId);
         if (changed == 0) {
             int inserted = jdbc.update("""
                     insert into relay_configuration_model(configuration_id,model_id,upstream_model_id,enabled,
-                      priority_override,weight_override) select id,?,?,?,?,? from relay_configuration where id=?
+                      priority_override,weight_override,reasoning_enabled)
+                    select id,?,?,?,?,?,? from relay_configuration where id=?
                     """, modelId, upstream, value.enabled(), value.priorityOverride(), value.weightOverride(),
-                    value.configurationId());
+                    value.reasoningEnabled(), value.configurationId());
             if (inserted == 0) throw new IllegalArgumentException("站点不存在");
+        }
+        // 管理员改了裁决就意味着他已经看过告警：清掉运行期学到的结论和未处理的告警，
+        // 否则告警列表会堆满已经处理过的历史项，管理员很快就不看了。
+        if (!java.util.Objects.equals(previousDecision, value.reasoningEnabled())) {
+            if (reasoningSupport != null) reasoningSupport.clearRoute(value.configurationId(), upstream);
+            if (reasoningAlerts != null) reasoningAlerts.resolveRoute(value.configurationId(), modelId);
         }
         replaceCostPrices(modelId, value.configurationId(), value.costPrices());
     }
@@ -313,13 +343,14 @@ public class ModelAdminService {
         return jdbc.query("""
                 select cm.configuration_id,c.name,c.provider,c.health_status,c.priority relay_priority,
                   c.weight relay_weight,c.protocol_strategy,cm.upstream_model_id,cm.enabled,cm.priority_override,
-                  cm.weight_override
+                  cm.weight_override,cm.reasoning_enabled
                 from relay_configuration_model cm join relay_configuration c on c.id=cm.configuration_id
                 where cm.model_id=? order by c.priority,c.id
                 """, (rs, row) -> new BindingView(rs.getLong("configuration_id"), rs.getString("name"),
                         rs.getString("provider"), rs.getString("health_status"), rs.getInt("relay_priority"),
                         rs.getInt("relay_weight"), rs.getString("upstream_model_id"), rs.getBoolean("enabled"),
                         (Integer) rs.getObject("priority_override"), (Integer) rs.getObject("weight_override"),
+                        (Boolean) rs.getObject("reasoning_enabled"),
                         costPrices(rs.getLong("configuration_id"), modelId), rs.getString("protocol_strategy"),
                         bindingProtocols(rs.getLong("configuration_id"), modelId)), modelId);
     }
@@ -397,7 +428,8 @@ public class ModelAdminService {
     }
 
     public record ModelView(String modelId, String displayName, int sortOrder, boolean enabled,
-                            long maxInputTokens, long maxOutputTokens, int accessGroupCount,
+                            long maxInputTokens, long maxOutputTokens,
+                            List<String> reasoningLevels, String reasoningDefaultLevel, int accessGroupCount,
                             List<PricingView> referencePrices, List<BindingView> bindings) {}
     public record PricingView(long id, BigDecimal inputPrice, BigDecimal cacheInputPrice,
                               BigDecimal cacheWriteInputPrice, BigDecimal outputPrice, long pricingUnit,
@@ -405,17 +437,31 @@ public class ModelAdminService {
                               Instant effectiveFrom, Instant effectiveTo, boolean enabled) {}
     public record BindingView(long configurationId, String configurationName, String provider, String healthStatus,
                               int relayPriority, int relayWeight, String upstreamModelId, boolean enabled,
-                              Integer priorityOverride, Integer weightOverride,
+                              Integer priorityOverride, Integer weightOverride, Boolean reasoningEnabled,
                               List<PricingView> costPrices, String protocolStrategy,
                               List<BindingProtocolView> protocols) {}
     public record BindingProtocolView(String code, boolean enabled, int priority,
                                       Map<String, Boolean> capabilities) {}
     public record ModelRequest(String modelId, String displayName, int sortOrder, boolean enabled,
-                               long maxInputTokens, long maxOutputTokens) {
+                               long maxInputTokens, long maxOutputTokens,
+                               List<String> reasoningLevels, String reasoningDefaultLevel) {
         public ModelRequest {
             if (sortOrder < 0) throw new IllegalArgumentException("排序值不能小于 0");
             if (maxInputTokens <= 0) throw new IllegalArgumentException("最大上下文窗口必须大于 0");
             if (maxOutputTokens <= 0) throw new IllegalArgumentException("最大输出 Tokens 必须大于 0");
+            // 写入侧严格校验：未知档位直接拒绝，避免脏值进库后在模型列表里被静默忽略。
+            List<ReasoningEffort> levels = reasoningLevels == null ? List.of()
+                    : reasoningLevels.stream()
+                            .map(value -> ReasoningEffort.parse(value).orElseThrow(
+                                    () -> new IllegalArgumentException("未知的推理强度档位：" + value)))
+                            .distinct().sorted().toList();
+            ReasoningEffort parsedDefault = ReasoningEffort.parse(reasoningDefaultLevel).orElse(null);
+            if (reasoningDefaultLevel != null && !reasoningDefaultLevel.isBlank() && parsedDefault == null)
+                throw new IllegalArgumentException("未知的默认推理强度档位：" + reasoningDefaultLevel);
+            if (parsedDefault != null && !levels.contains(parsedDefault))
+                throw new IllegalArgumentException("默认推理强度档位必须在已选档位中");
+            reasoningLevels = levels.stream().map(ReasoningEffort::wire).toList();
+            reasoningDefaultLevel = parsedDefault == null ? null : parsedDefault.wire();
         }
     }
     public record PricingRequest(Long id, BigDecimal inputPrice, BigDecimal cacheInputPrice,
@@ -439,7 +485,8 @@ public class ModelAdminService {
         }
     }
     public record BindingRequest(long configurationId, String upstreamModelId, boolean enabled,
-                                 Integer priorityOverride, Integer weightOverride, List<PricingRequest> costPrices,
+                                 Integer priorityOverride, Integer weightOverride, Boolean reasoningEnabled,
+                                 List<PricingRequest> costPrices,
                                  List<BindingProtocolRequest> protocols) {
         public BindingRequest {
             if (priorityOverride != null && priorityOverride < 0)

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { uploadDocImage } from '@/lib/api/docs'
+import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -32,6 +33,7 @@ export function DocsEditor({
   uploadSessionId: string
   onChange: (html: string) => void
 }) {
+  const { t } = useTranslation()
   const [uploading, setUploading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const editor = useEditor({
@@ -63,9 +65,9 @@ export function DocsEditor({
     try {
       const asset = await uploadDocImage(file, articleId, uploadSessionId)
       editor.chain().focus().setImage({ src: asset.url, alt: file.name }).run()
-      toast.success('图片已上传')
+      toast.success(t('docsAdmin.editor.imageUploaded'))
     } catch (error) {
-      toast.error(apiMessage(error, '图片上传失败'))
+      toast.error(apiMessage(error, t('docsAdmin.editor.imageUploadFailed')))
     } finally {
       setUploading(false)
       if (inputRef.current) inputRef.current.value = ''
@@ -116,72 +118,72 @@ export function DocsEditor({
     >
       <div className='flex flex-wrap items-center gap-0.5 border-b bg-muted/30 p-2'>
         {tool(
-          '一级标题',
+          t('docsAdmin.editor.heading1'),
           editor.isActive('heading', { level: 1 }),
           () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
           <span className='text-xs font-bold'>H1</span>
         )}
         {tool(
-          '二级标题',
+          t('docsAdmin.editor.heading2'),
           editor.isActive('heading', { level: 2 }),
           () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
           <span className='text-xs font-bold'>H2</span>
         )}
         {tool(
-          '三级标题',
+          t('docsAdmin.editor.heading3'),
           editor.isActive('heading', { level: 3 }),
           () => editor.chain().focus().toggleHeading({ level: 3 }).run(),
           <span className='text-xs font-bold'>H3</span>
         )}
         <span className='mx-1 h-5 border-l' />
         {tool(
-          '粗体',
+          t('docsAdmin.editor.bold'),
           editor.isActive('bold'),
           () => editor.chain().focus().toggleBold().run(),
           <Bold className='size-4' />
         )}
         {tool(
-          '斜体',
+          t('docsAdmin.editor.italic'),
           editor.isActive('italic'),
           () => editor.chain().focus().toggleItalic().run(),
           <Italic className='size-4' />
         )}
         {tool(
-          '行内代码',
+          t('docsAdmin.editor.inlineCode'),
           editor.isActive('code'),
           () => editor.chain().focus().toggleCode().run(),
           <Code className='size-4' />
         )}
         {tool(
-          '代码块',
+          t('docsAdmin.editor.codeBlock'),
           editor.isActive('codeBlock'),
           () => editor.chain().focus().toggleCodeBlock().run(),
           <Code2 className='size-4' />
         )}
         {tool(
-          '无序列表',
+          t('docsAdmin.editor.bulletList'),
           editor.isActive('bulletList'),
           () => editor.chain().focus().toggleBulletList().run(),
           <List className='size-4' />
         )}
         {tool(
-          '有序列表',
+          t('docsAdmin.editor.orderedList'),
           editor.isActive('orderedList'),
           () => editor.chain().focus().toggleOrderedList().run(),
           <ListOrdered className='size-4' />
         )}
         {tool(
-          '引用',
+          t('docsAdmin.editor.blockquote'),
           editor.isActive('blockquote'),
           () => editor.chain().focus().toggleBlockquote().run(),
           <Quote className='size-4' />
         )}
         {tool(
-          '链接',
+          t('docsAdmin.editor.link'),
           editor.isActive('link'),
           () => {
             const url = window.prompt(
-              '请输入链接地址',
+              t('docsAdmin.editor.linkPrompt'),
               editor.getAttributes('link').href ?? 'https://'
             )
             if (url === null) return
@@ -197,7 +199,7 @@ export function DocsEditor({
           <Link2 className='size-4' />
         )}
         {tool(
-          '分隔线',
+          t('docsAdmin.editor.horizontalRule'),
           false,
           () => editor.chain().focus().setHorizontalRule().run(),
           <Minus className='size-4' />
@@ -215,7 +217,7 @@ export function DocsEditor({
           ) : (
             <ImageIcon className='size-4' />
           )}
-          <span className='sr-only'>上传图片</span>
+          <span className='sr-only'>{t('docsAdmin.editor.uploadImage')}</span>
         </Button>
         <input
           ref={inputRef}

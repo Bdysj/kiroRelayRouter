@@ -1,6 +1,7 @@
 package cn.app.kiroproxy.proxy;
 
 import cn.app.kiroproxy.config.RelayModel;
+import cn.app.kiroproxy.protocol.ReasoningEffort;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -14,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.zip.CRC32;
 import java.math.BigDecimal;
@@ -96,8 +98,44 @@ public final class KiroProtocol {
             item.putArray("supportedInputTypes").add("TEXT").add("IMAGE").add("DOCUMENT");
             item.putObject("tokenLimits").put("maxInputTokens", model.maxInputTokens())
                     .put("maxOutputTokens", model.maxOutputTokens());
+            // 点亮 Kiro 输入框右下角的 Effort 档位下拉框。Kiro 只在模型声明了
+            // properties.reasoning.properties.effort.enum 时才渲染这个控件，选中后会在
+            // 请求体顶层回传 additionalModelRequestFields.reasoning.effort。
+            // 未配置档位的模型不下发这段 schema，控件随之消失 —— 与官方「低端模型没有
+            // 思考强度」的表现一致。
+            if (model.reasoningSupported()) {
+                ObjectNode effort = item.putObject("additionalModelRequestFieldsSchema")
+                        .putObject("properties").putObject("reasoning")
+                        .putObject("properties").putObject("effort");
+                ArrayNode levels = effort.putArray("enum");
+                for (ReasoningEffort level : model.reasoningLevels()) levels.add(level.wire());
+                ReasoningEffort defaultLevel = model.effectiveDefaultLevel();
+                if (defaultLevel != null) effort.put("default", defaultLevel.wire());
+            }
         }
         return result;
+    }
+
+    /**
+     * 从 Kiro 请求里取出用户选中的推理强度。
+     *
+     * <p>Kiro 把它放在请求体<b>顶层</b>的 {@code additionalModelRequestFields} 下（与
+     * {@code conversationState} 平级），形态由我们在模型 schema 里声明的路径决定。当前声明的是
+     * {@code reasoning}，这里同时兼容 {@code output_config}，以免将来改了声明路径这里漏改。
+     */
+    public static Optional<ReasoningEffort> requestedEffort(JsonNode body, RelayModel model) {
+        JsonNode fields = body.path("additionalModelRequestFields");
+        String raw = fields.path("reasoning").path("effort")
+                .asText(fields.path("output_config").path("effort").asText(null));
+        return ReasoningEffort.parse(raw).flatMap(requested ->
+                ReasoningEffort.clamp(requested, model.reasoningLevels()));
+    }
+
+    public static ObjectNode translateRequest(ObjectMapper mapper, JsonNode body, RelayModel model) {
+        ObjectNode request = translateRequest(mapper, body, model.modelId());
+        requestedEffort(body, model).ifPresent(effort ->
+                request.put(ReasoningEffort.CANONICAL_FIELD, effort.wire()));
+        return request;
     }
 
     public static ObjectNode translateRequest(ObjectMapper mapper, JsonNode body, String model) {
