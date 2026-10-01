@@ -927,6 +927,7 @@ async function forwardToBackend(req, res, body) {
         'x-amz-target': target,
         'x-relay-request-id': requestId,
       }),
+      // Preserve Kiro's explicit output_config.format schema; the backend applies it only on Anthropic routes.
       body: JSON.stringify(body),
       signal: controller.signal,
     });

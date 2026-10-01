@@ -43,6 +43,8 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
         }
         if (!system.isEmpty()) result.put("system", system.toString());
         if (canonical.path("temperature").isNumber()) result.set("temperature", canonical.path("temperature"));
+        JsonNode format = canonical.path("_anthropic_output_format");
+        if (format.isObject()) result.putObject("output_config").set("format", format.deepCopy());
         // Anthropic 用顶层 effort 表达强度。这里刻意不下发 thinking.budget_tokens：那条路径要求
         // budget < max_tokens，为了塞进预算就得抬高 max_tokens，而预扣费正是按 max_tokens 估的，
         // 会凭空放大用户的冻结额度。老模型若不认 effort，由请求链路的自动降级兜住。

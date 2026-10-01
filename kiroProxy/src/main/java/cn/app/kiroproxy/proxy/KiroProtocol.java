@@ -131,6 +131,18 @@ public final class KiroProtocol {
                 ReasoningEffort.clamp(requested, model.reasoningLevels()));
     }
 
+    /** Only an explicitly requested Anthropic JSON schema enables native structured outputs. */
+    public static JsonNode requestedOutputFormat(JsonNode body) {
+        JsonNode format = body.path("additionalModelRequestFields").path("output_config").path("format");
+        if (format.isMissingNode() || format.isNull()) return null;
+        if (!format.isObject() || !"json_schema".equals(format.path("type").asText())
+                || !format.path("schema").isObject()
+                || !"object".equals(format.path("schema").path("type").asText())) {
+            throw new IllegalArgumentException("output_config.format must contain a JSON object schema");
+        }
+        return format;
+    }
+
     public static ObjectNode translateRequest(ObjectMapper mapper, JsonNode body, RelayModel model) {
         ObjectNode request = translateRequest(mapper, body, model.modelId());
         requestedEffort(body, model).ifPresent(effort ->

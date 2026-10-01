@@ -164,6 +164,7 @@ public class RelayProxyService implements DisposableBean {
             output.write(KiroProtocol.event(mapper, "initial-response", Map.of("conversationId", conversationId)));
             output.flush();
             ObjectNode upstreamBody = KiroProtocol.translateRequest(mapper, body, model);
+            JsonNode outputFormat = KiroProtocol.requestedOutputFormat(body);
             Set<ProtocolCapability> requiredCapabilities = RequestCapabilityInspector.inspect(upstreamBody);
             long estimatedInputTokens = Math.max(1, mapper.writeValueAsBytes(upstreamBody.path("messages")).length / 3L);
             long maximumOutputTokens = Math.max(0, upstreamBody.path("max_tokens").asLong(4096));
@@ -174,7 +175,7 @@ public class RelayProxyService implements DisposableBean {
             long upstreamHeadersMs = streamWithFailover(config, model, upstreamBody, state, output, startedAt,
                     requestId, upstreamBody.path("messages").size(), upstreamBody.path("tools").size(),
                     KiroProtocol.imageCount(body), imageParts, principal, estimatedInputTokens, maximumOutputTokens,
-                    requiredCapabilities, lang, conversationId, affinityBinding);
+                    requiredCapabilities, lang, conversationId, affinityBinding, outputFormat);
 
             validateCompletedTools(state, lang);
             for (ToolState tool : state.tools.values()) if (tool.started) {
@@ -269,7 +270,7 @@ public class RelayProxyService implements DisposableBean {
                                     AccessPrincipal principal, long estimatedInputTokens, long maximumOutputTokens,
                                     Set<ProtocolCapability> requiredCapabilities,
                                     String language, String conversationId,
-                                    ConversationAffinityService.Binding affinityBinding)
+                                    ConversationAffinityService.Binding affinityBinding, JsonNode outputFormat)
             throws IOException, InterruptedException {
         Set<RelaySelector.RouteKey> attempted = new HashSet<>();
         Exception lastFailure = null;
@@ -295,9 +296,11 @@ public class RelayProxyService implements DisposableBean {
                         try {
                             lease = selector.selectRoute(model.modelId(), requiredCapabilities, attempted,
                                     preferredRelayId, preferredWait,
-                                    (candidate, protocol) -> effortAllowedOn(candidate, protocol.code(),
-                                            candidate.upstreamModelId(model.modelId()),
-                                            candidate.reasoningEnabledFor(model.modelId())));
+                                    (candidate, protocol) ->
+                                            (outputFormat == null || protocol.code() == ProtocolCode.ANTHROPIC_MESSAGES)
+                                            && effortAllowedOn(candidate, protocol.code(),
+                                                    candidate.upstreamModelId(model.modelId()),
+                                                    candidate.reasoningEnabledFor(model.modelId())));
                         } catch (RelaySelector.NoRelayAvailableException relaxed) {
                             // 没有任何支持推理强度的候选。退让成普通选路，档位会在下面被剥掉，
                             // 用户依旧无感知 —— 但至少不是"随机地"降级。
@@ -308,7 +311,9 @@ public class RelayProxyService implements DisposableBean {
                     }
                     if (lease == null) {
                         lease = selector.selectRoute(model.modelId(), requiredCapabilities, attempted,
-                                preferredRelayId, preferredWait);
+                                preferredRelayId, preferredWait,
+                                outputFormat == null ? null : (candidate, protocol) ->
+                                        protocol.code() == ProtocolCode.ANTHROPIC_MESSAGES);
                     }
                     endpoint = lease.endpoint();
                     state.protocol = lease.protocol();
@@ -329,11 +334,17 @@ public class RelayProxyService implements DisposableBean {
                     throw error;
                 }
             }
+            if (outputFormat != null && state.protocol.code() != ProtocolCode.ANTHROPIC_MESSAGES) {
+                throw new UpstreamFailure(422, "NATIVE_OUTPUT_UNAVAILABLE",
+                        RelayLanguage.text(language, "原生 JSON 输出仅支持 Anthropic Messages 路由。",
+                                "Native JSON outputs require an Anthropic Messages route."));
+            }
             attempted.add(new RelaySelector.RouteKey(endpoint.id(), state.protocol.code()));
             try {
                 ObjectNode canonicalBody = upstreamBody.deepCopy();
                 String sentModelId = endpoint.upstreamModelId(model.modelId());
                 canonicalBody.put("model", sentModelId);
+                if (outputFormat != null) canonicalBody.set("_anthropic_output_format", outputFormat.deepCopy());
                 try {
                     if (state.charge == null) {
                         state.charge = beginBilling(requestId, principal, model.modelId(), endpoint.id(),
