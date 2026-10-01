@@ -20,6 +20,16 @@ public final class ModelProtocolClassifier {
         return Family.UNKNOWN;
     }
 
+    /** Official GPT-6.1 Sol / GPT-6 Astra: Chat Completions cannot perform tool calling. */
+    public static boolean requiresResponsesForTools(String modelId) {
+        if (modelId == null) return false;
+        String value = modelId.trim().toLowerCase(Locale.ROOT);
+        String leaf = value.substring(Math.max(value.lastIndexOf('/'), value.lastIndexOf(':')) + 1);
+        return leaf.equals("gpt-6.1-sol") || leaf.startsWith("gpt-6.1-sol-")
+                || leaf.equals("gpt-6-1-sol") || leaf.startsWith("gpt-6-1-sol-")
+                || leaf.equals("gpt-6-astra") || leaf.startsWith("gpt-6-astra-");
+    }
+
     public static Set<ProtocolCode> protocols(Family family) {
         return switch (family) {
             case OPENAI -> Set.of(ProtocolCode.OPENAI_CHAT_COMPLETIONS, ProtocolCode.OPENAI_RESPONSES);

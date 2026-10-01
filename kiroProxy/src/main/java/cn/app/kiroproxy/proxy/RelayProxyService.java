@@ -33,6 +33,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
@@ -287,7 +288,11 @@ public class RelayProxyService implements DisposableBean {
                     throw new IOException("对外请求失败", lastFailure);
                 }
                 endpoint = legacyEndpoint(config, model.modelId());
-                state.protocol = endpoint.protocolsFor(model.modelId(), requiredCapabilities).get(0);
+                List<RelayProtocol> protocols = endpoint.protocolsFor(model.modelId(), requiredCapabilities);
+                if (protocols.isEmpty()) {
+                    throw new RelaySelector.ProtocolCapabilityUnavailableException(requiredCapabilities);
+                }
+                state.protocol = protocols.get(0);
             } else {
                 try {
                     Long preferredRelayId = affinityBinding == null ? null : affinityBinding.relayId();

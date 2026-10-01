@@ -110,6 +110,10 @@ public record RelayEndpoint(
                 .filter(protocol -> protocolStrategy.allows(protocol.code()))
                 .filter(protocol -> explicitlyMapped || !requireFamilyMatch || inferred.contains(protocol.code()))
                 .filter(protocol -> protocol.supports(required))
+                .filter(protocol -> !(ModelProtocolClassifier.requiresResponsesForTools(upstreamModelId(modelId))
+                        && (required.contains(ProtocolCapability.TOOL_USE)
+                                || required.contains(ProtocolCapability.TOOL_RESULT))
+                        && protocol.code() == cn.app.kiroproxy.protocol.ProtocolCode.OPENAI_CHAT_COMPLETIONS))
                 .sorted(Comparator.comparingInt(RelayProtocol::priority).thenComparing(p -> p.code().name()))
                 .toList();
     }
