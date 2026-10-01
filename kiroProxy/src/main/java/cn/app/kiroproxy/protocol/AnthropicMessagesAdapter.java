@@ -65,10 +65,10 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
 
     private static void appendContent(ArrayNode target, JsonNode source) {
         if (source.isTextual()) { target.addObject().put("type", "text").put("text", source.asText()); return; }
+        // Anthropic multimodal requests place attachments before the instruction text.
+        // Kiro's canonical messages may put text first; OpenAI adapters retain their original ordering.
         for (JsonNode part : source) {
-            if ("text".equals(part.path("type").asText())) {
-                target.addObject().put("type", "text").put("text", part.path("text").asText());
-            } else if ("image_url".equals(part.path("type").asText())) {
+            if ("image_url".equals(part.path("type").asText())) {
                 DataUrl data = DataUrl.parse(part.path("image_url").path("url").asText());
                 target.addObject().put("type", "image").putObject("source").put("type", "base64")
                         .put("media_type", data.mediaType).put("data", data.data);
@@ -76,6 +76,11 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
                 DataUrl data = DataUrl.parse(part.path("file").path("file_data").asText());
                 target.addObject().put("type", "document").putObject("source").put("type", "base64")
                         .put("media_type", data.mediaType).put("data", data.data);
+            }
+        }
+        for (JsonNode part : source) {
+            if ("text".equals(part.path("type").asText())) {
+                target.addObject().put("type", "text").put("text", part.path("text").asText());
             }
         }
     }

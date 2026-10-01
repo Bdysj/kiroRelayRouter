@@ -127,30 +127,35 @@ public class ProtocolVerificationService implements org.springframework.beans.fa
             text = !basic.text().isBlank();
             if (!text) throw new IllegalStateException("未收到文本增量");
 
+            boolean nativeProbe = protocol.code() == ProtocolCode.ANTHROPIC_MESSAGES;
+            List<String> modalityErrors = new ArrayList<>();
             if (imageTested) {
-                String marker = "KIRO-IMG-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+                String marker = UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
                 try {
-                    ProbeResult imageResult = executeProbe(endpoint, protocol, adapter,
-                            imageProbe(endpoint.upstreamModelId(modelId), marker, streamingTested), marker,
-                            streamingTested);
-                    image = imageResult.text().toUpperCase(Locale.ROOT).contains(marker);
-                    if (!image) throw new IllegalStateException("模型未返回图片内的随机校验码");
+                    ObjectNode request = imageProbe(endpoint.upstreamModelId(modelId), marker,
+                            streamingTested && !nativeProbe, nativeProbe);
+                    ProbeResult result = executeProbe(endpoint, protocol, adapter, request, marker,
+                            streamingTested && !nativeProbe);
+                    image = matchesMarker(result.text(), marker, nativeProbe);
+                    if (!image) modalityErrors.add("图片验证失败：模型未返回图片内的随机校验码");
                 } catch (Exception error) {
-                    throw new IllegalStateException("图片验证失败：" + errorMessage(error), error);
+                    modalityErrors.add("图片验证失败：" + errorMessage(error));
                 }
             }
             if (pdfTested) {
-                String marker = "KIRO-PDF-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
-                ObjectNode pdfRequest = pdfProbe(endpoint.upstreamModelId(modelId), marker, streamingTested);
+                String marker = UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
                 try {
-                    ProbeResult pdfResult = executeProbe(endpoint, protocol, adapter, pdfRequest, marker,
-                            streamingTested);
-                    pdf = pdfResult.text().toUpperCase(Locale.ROOT).contains(marker);
-                    if (!pdf) throw new IllegalStateException("模型未返回 PDF 内的随机校验码");
+                    ObjectNode request = pdfProbe(endpoint.upstreamModelId(modelId), marker,
+                            streamingTested && !nativeProbe, nativeProbe);
+                    ProbeResult result = executeProbe(endpoint, protocol, adapter, request, marker,
+                            streamingTested && !nativeProbe);
+                    pdf = matchesMarker(result.text(), marker, nativeProbe);
+                    if (!pdf) modalityErrors.add("PDF 验证失败：模型未返回 PDF 内的随机校验码");
                 } catch (Exception error) {
-                    throw new IllegalStateException("PDF 验证失败：" + errorMessage(error), error);
+                    modalityErrors.add("PDF 验证失败：" + errorMessage(error));
                 }
             }
+            if (!modalityErrors.isEmpty()) throw new IllegalStateException(String.join("；", modalityErrors));
             List<String> verifiedCapabilities = new ArrayList<>(List.of("连接", "文本"));
             if (streamingTested) verifiedCapabilities.add("Streaming");
             if (imageTested) verifiedCapabilities.add("图片读取");
@@ -299,30 +304,48 @@ public class ProtocolVerificationService implements org.springframework.beans.fa
         else for (var item : value) if (item.path("text").isTextual()) target.append(item.path("text").asText());
     }
 
-    private ObjectNode pdfProbe(String modelId, String marker, boolean streaming) {
+    private ObjectNode pdfProbe(String modelId, String marker, boolean streaming, boolean nativeProbe) {
         ObjectNode canonical = mapper.createObjectNode().put("model", modelId).put("stream", streaming)
-                .put("max_tokens", 32);
+                .put("max_tokens", 256);
+        if (nativeProbe) addNativeProbeSchema(canonical);
         ArrayNode content = canonical.putArray("messages").addObject().put("role", "user").putArray("content");
-        content.addObject().put("type", "text")
-                .put("text", "Read the attached PDF and reply with only the probe code printed inside it.");
         ObjectNode file = content.addObject().put("type", "file").putObject("file");
         file.put("filename", "kiro-protocol-probe.pdf");
         file.put("file_data", "data:application/pdf;base64," + Base64.getEncoder().encodeToString(pdfBytes(marker)));
+        content.addObject().put("type", "text")
+                .put("text", nativeProbe ? "What is the value after CODE: printed inside this PDF? Return it in code."
+                        : "Read the attached PDF and reply with only the value after CODE: printed inside it.");
         return canonical;
     }
 
-    private ObjectNode imageProbe(String modelId, String marker, boolean streaming) {
+    private ObjectNode imageProbe(String modelId, String marker, boolean streaming, boolean nativeProbe) {
         ObjectNode canonical = mapper.createObjectNode().put("model", modelId).put("stream", streaming)
-                .put("max_tokens", 32);
+                .put("max_tokens", 256);
+        if (nativeProbe) addNativeProbeSchema(canonical);
         ArrayNode content = canonical.putArray("messages").addObject().put("role", "user").putArray("content");
-        content.addObject().put("type", "text")
-                .put("text", "Read the attached image and reply with only the probe code visibly printed in it.");
         content.addObject().put("type", "image_url").putObject("image_url")
                 .put("url", "data:image/png;base64," + Base64.getEncoder().encodeToString(imageBytes(marker)));
+        content.addObject().put("type", "text")
+                .put("text", nativeProbe ? "What is the value after CODE: visibly printed in this image? Return it in code."
+                        : "Read the attached image and reply with only the value after CODE: printed in it.");
         return canonical;
     }
 
-    /** Builds a high-contrast PNG in memory. The trailing marker is ignored by PNG decoders and aids wire-level tests. */
+    private static void addNativeProbeSchema(ObjectNode canonical) {
+        ObjectNode schema = canonical.putObject("_anthropic_output_format").put("type", "json_schema")
+                .putObject("schema");
+        schema.put("type", "object").putObject("properties").putObject("code").put("type", "string");
+        schema.putArray("required").add("code");
+        schema.put("additionalProperties", false);
+    }
+
+    private boolean matchesMarker(String text, String marker, boolean nativeProbe) throws Exception {
+        if (!nativeProbe) return text.toUpperCase(Locale.ROOT).contains(marker);
+        com.fasterxml.jackson.databind.JsonNode answer = mapper.readTree(text);
+        return answer != null && answer.isObject() && marker.equalsIgnoreCase(answer.path("code").asText());
+    }
+
+    /** Builds a high-contrast PNG in memory without extraneous bytes after the IEND chunk. */
     private static byte[] imageBytes(String marker) {
         try {
             BufferedImage image = new BufferedImage(640, 160, BufferedImage.TYPE_INT_RGB);
@@ -332,13 +355,12 @@ public class ProtocolVerificationService implements org.springframework.beans.fa
                 graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
                 graphics.setColor(Color.BLACK);
                 graphics.setFont(new Font(Font.MONOSPACED, Font.BOLD, 42));
-                graphics.drawString(marker, 40, 98);
+                graphics.drawString("CODE: " + marker, 40, 98);
             } finally {
                 graphics.dispose();
             }
             ByteArrayOutputStream output = new ByteArrayOutputStream();
             if (!ImageIO.write(image, "png", output)) throw new IllegalStateException("PNG 编码器不可用");
-            output.writeBytes(marker.getBytes(StandardCharsets.US_ASCII));
             return output.toByteArray();
         } catch (Exception error) {
             throw new IllegalStateException("无法生成图片测试载荷", error);
@@ -347,7 +369,7 @@ public class ProtocolVerificationService implements org.springframework.beans.fa
 
     /** Builds a one-page PDF in memory, so no customer file or fixed answer is used by the probe. */
     private static byte[] pdfBytes(String marker) {
-        String stream = "BT /F1 18 Tf 72 720 Td (" + marker + ") Tj ET";
+        String stream = "BT /F1 24 Tf 72 720 Td (CODE: " + marker + ") Tj ET";
         List<String> objects = List.of(
                 "<< /Type /Catalog /Pages 2 0 R >>",
                 "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
