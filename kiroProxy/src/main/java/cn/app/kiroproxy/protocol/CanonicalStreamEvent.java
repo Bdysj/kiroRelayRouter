@@ -4,10 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 public record CanonicalStreamEvent(Type type, String text, int index, String id, String name,
         JsonNode usage, String model, String finishReason, JsonNode error) {
-    public enum Type { TEXT_DELTA, REASONING_DELTA, TOOL_START, TOOL_DELTA, USAGE, MODEL, FINISH, DONE, ERROR }
+    public enum Type { TEXT_DELTA, TEXT_SNAPSHOT, REASONING_DELTA, TOOL_START, TOOL_DELTA, TOOL_SNAPSHOT, USAGE, MODEL, FINISH, DONE, ERROR }
 
     public static CanonicalStreamEvent text(Type type, String value) {
-        return new CanonicalStreamEvent(type, value, 0, null, null, null, null, null, null);
+        return text(type, 0, value);
+    }
+    public static CanonicalStreamEvent text(Type type, int index, String value) {
+        return new CanonicalStreamEvent(type, value, index, null, null, null, null, null, null);
     }
     public static CanonicalStreamEvent tool(Type type, int index, String id, String name, String value) {
         return new CanonicalStreamEvent(type, value, index, id, name, null, null, null, null);

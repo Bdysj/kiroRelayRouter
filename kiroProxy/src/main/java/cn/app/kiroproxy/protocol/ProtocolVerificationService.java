@@ -214,7 +214,7 @@ public class ProtocolVerificationService implements org.springframework.beans.fa
                                      ObjectNode canonical, String expectedText, boolean streamingTested) throws Exception {
         int probeTimeoutMs = Math.min(endpoint.readTimeoutMs(), MAX_PROBE_TIMEOUT_MS);
         byte[] bytes = mapper.writeValueAsBytes(adapter.encode(mapper, canonical));
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(endpoint.baseUrl() + protocol.path()))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(cn.app.kiroproxy.protocol.UpstreamUrl.resolve(endpoint.baseUrl(), protocol))
                 .timeout(Duration.ofMillis(probeTimeoutMs));
         adapter.headers(endpoint.apiKey()).forEach(builder::header);
         builder.setHeader("accept", streamingTested ? "text/event-stream" : "application/json");
@@ -239,6 +239,7 @@ public class ProtocolVerificationService implements org.springframework.beans.fa
             try { responseBody.close(); } catch (Exception ignored) { }
         }, probeTimeoutMs, TimeUnit.MILLISECONDS);
         StringBuilder receivedText = new StringBuilder();
+        Map<Integer, StringBuilder> textByOutput = new java.util.LinkedHashMap<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(responseBody, StandardCharsets.UTF_8))) {
             String eventName = "";
             StringBuilder data = new StringBuilder();
@@ -255,8 +256,16 @@ public class ProtocolVerificationService implements org.springframework.beans.fa
                     for (CanonicalStreamEvent event : events) {
                         if (event.type() == CanonicalStreamEvent.Type.ERROR)
                             throw new IllegalStateException("协议返回错误事件");
-                        if (event.type() == CanonicalStreamEvent.Type.TEXT_DELTA && event.text() != null) {
-                            receivedText.append(event.text());
+                        if ((event.type() == CanonicalStreamEvent.Type.TEXT_DELTA
+                                || event.type() == CanonicalStreamEvent.Type.TEXT_SNAPSHOT) && event.text() != null) {
+                            StringBuilder part = textByOutput.computeIfAbsent(event.index(), ignored -> new StringBuilder());
+                            String delta = event.text();
+                            if (event.type() == CanonicalStreamEvent.Type.TEXT_SNAPSHOT) {
+                                if (!delta.startsWith(part.toString())) throw new IllegalStateException("流式内容不一致");
+                                delta = delta.substring(part.length());
+                            }
+                            part.append(delta);
+                            receivedText.append(delta);
                             if (expectedText == null && !receivedText.toString().isBlank()) done = true;
                             if (expectedText != null && receivedText.toString().toUpperCase(Locale.ROOT)
                                     .contains(expectedText)) done = true;

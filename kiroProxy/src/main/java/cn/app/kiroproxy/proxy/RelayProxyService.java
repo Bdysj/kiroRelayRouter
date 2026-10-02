@@ -500,7 +500,7 @@ public class RelayProxyService implements DisposableBean {
                                           long startedAt, String requestId, String language)
             throws IOException, InterruptedException {
         try {
-            return streamFromEndpoint(endpoint, model, state.protocol, adapter, requestBytes, state, output,
+            return streamWithOptionalParameterFallback(endpoint, model, adapter, requestBytes, state, output,
                     startedAt, requestId, language);
         } catch (UpstreamFailure failure) {
             if (attemptedEffort == null || state.firstOutputNanos != 0 || !rejectsRequestParameters(failure)) {
@@ -514,7 +514,7 @@ public class RelayProxyService implements DisposableBean {
                     failure.httpStatus);
             long headersMs;
             try {
-                headersMs = streamFromEndpoint(endpoint, model, state.protocol, adapter,
+                headersMs = streamWithOptionalParameterFallback(endpoint, model, adapter,
                         encodeUpstream(adapter, canonicalBody, state.protocol.code()), state, output,
                         startedAt, requestId, language);
             } catch (IOException retryFailure) {
@@ -548,6 +548,27 @@ public class RelayProxyService implements DisposableBean {
                 && !"UPSTREAM_NOT_FOUND".equals(failure.code);
     }
 
+    /** Retry only explicit unsupported sampling fields, never credentials/model/history errors or output caps. */
+    private long streamWithOptionalParameterFallback(RelayEndpoint endpoint, RelayModel model, ProtocolAdapter adapter,
+            byte[] requestBytes, StreamState state, OutputStream output, long startedAt, String requestId,
+            String language) throws IOException, InterruptedException {
+        ObjectNode wire = (ObjectNode) mapper.readTree(requestBytes);
+        while (true) {
+            try {
+                return streamFromEndpoint(endpoint, model, state.protocol, adapter,
+                        mapper.writeValueAsBytes(wire), state, output, startedAt, requestId, language);
+            } catch (UpstreamFailure failure) {
+                String parameter = failure.unsupportedSamplingParameter;
+                if (adapter.code() != ProtocolCode.OPENAI_RESPONSES || state.firstOutputNanos != 0
+                        || parameter == null || !wire.has(parameter)) throw failure;
+                // Each allowed field can be removed only once: at most two retries.
+                wire.remove(parameter);
+                log.info("relay optional_parameter_retry request={} relay_id={} protocol={} parameter={} status={}",
+                        requestId, endpoint.id(), adapter.code(), parameter, failure.httpStatus);
+            }
+        }
+    }
+
     private long streamFromEndpoint(RelayEndpoint endpoint, RelayModel model, RelayProtocol protocol,
                                     ProtocolAdapter adapter, byte[] requestBytes,
                                     StreamState state, OutputStream output, long startedAt, String requestId,
@@ -559,7 +580,7 @@ public class RelayProxyService implements DisposableBean {
         // long-lived SSE because an otherwise healthy stream gets killed after
         // exactly readTimeoutMs. Header waiting and stream idleness are bounded
         // separately below instead.
-        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(endpoint.baseUrl() + protocol.path()));
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(cn.app.kiroproxy.protocol.UpstreamUrl.resolve(endpoint.baseUrl(), protocol));
         adapter.headers(endpoint.apiKey()).forEach(requestBuilder::header);
         HttpRequest request = requestBuilder.POST(HttpRequest.BodyPublishers.ofByteArray(requestBytes)).build();
         HttpResponse<InputStream> response = awaitUpstreamHeaders(client(endpoint.connectTimeoutMs()), request,
@@ -568,7 +589,10 @@ public class RelayProxyService implements DisposableBean {
         log.debug("relay upstream_headers request={} relay_id={} elapsed_ms={} status={}", requestId,
                 endpoint.id(), upstreamHeadersMs, response.statusCode());
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw classifyUpstreamFailure(response.statusCode(), readErrorBody(response, attemptStartedAt, timeout), language);
+            JsonNode errorBody = readErrorBody(response, attemptStartedAt, timeout);
+            logUpstreamRejection(requestId, endpoint.id(), protocol.code(), response.statusCode(), errorBody,
+                    response.headers().firstValue("content-type").orElse(""));
+            throw classifyUpstreamFailure(response.statusCode(), errorBody, language);
         }
         if (!response.headers().firstValue("content-type").orElse("")
                 .toLowerCase(java.util.Locale.ROOT).startsWith("text/event-stream")) {
@@ -748,8 +772,44 @@ public class RelayProxyService implements DisposableBean {
         }
     }
 
+    private static JsonNode upstreamErrorDetail(JsonNode body) {
+        if (body.path("response").hasNonNull("error")) return body.path("response").path("error");
+        return body.hasNonNull("error") ? body.path("error") : body;
+    }
+
+    private static String diagnosticField(String value) {
+        return value == null ? "" : value.replaceAll("[^a-zA-Z0-9_.\\[\\]-]", "_")
+                .substring(0, Math.min(120, value.length()));
+    }
+
+    private void logUpstreamRejection(String requestId, Long endpointId, ProtocolCode protocol, int status,
+                                     JsonNode body, String contentType) {
+        JsonNode detail = upstreamErrorDetail(body);
+        log.warn("relay upstream_rejection request={} relay_id={} protocol={} status={} upstream_code={} "
+                        + "upstream_type={} parameter={} content_type={}", requestId, endpointId, protocol, status,
+                diagnosticField(detail.path("code").asText("")), diagnosticField(detail.path("type").asText("")),
+                diagnosticField(detail.path("param").asText("")), diagnosticField(contentType));
+    }
+
+    private static String unsupportedSamplingParameter(int status, JsonNode detail) {
+        if (status != 400 && status != 422) return null;
+        String code = detail.path("code").asText("");
+        String message = detail.path("message").asText("").toLowerCase(java.util.Locale.ROOT);
+        boolean unsupported = "unsupported_parameter".equals(code)
+                || message.contains("unsupported parameter") || message.contains("not supported");
+        if (!unsupported) return null;
+        String parameter = detail.path("param").asText("");
+        if (Set.of("temperature", "top_p").contains(parameter)) return parameter;
+        // Some Codex-compatible relays omit param but quote the rejected parameter in message.
+        for (String candidate : List.of("temperature", "top_p")) {
+            if (message.contains("unsupported parameter: '" + candidate + "'")
+                    || message.contains("unsupported parameter: \"" + candidate + "\"")) return candidate;
+        }
+        return null;
+    }
+
     private static UpstreamFailure classifyUpstreamFailure(int status, JsonNode body, String language) {
-        JsonNode detail = body.hasNonNull("error") ? body.path("error") : body;
+        JsonNode detail = upstreamErrorDetail(body);
         String code = detail.path("code").asText(detail.path("type").asText(""))
                 .toLowerCase(java.util.Locale.ROOT).replace('-', '_');
         String message = (detail.isTextual() ? detail.asText() : detail.path("message").asText(""))
@@ -778,16 +838,22 @@ public class RelayProxyService implements DisposableBean {
                         "The requested endpoint or resource was not found. Please contact the administrator."));
         return new UpstreamFailure(status, "UPSTREAM_REJECTED",
                 RelayLanguage.text(language, "未能处理本次请求，请稍后重试或联系管理员检查配置。",
-                        "The request could not be processed. Please try again later or contact the administrator."));
+                        "The request could not be processed. Please try again later or contact the administrator."),
+                unsupportedSamplingParameter(status, detail));
     }
 
     private static final class UpstreamFailure extends IOException {
         private final int httpStatus;
         private final String code;
+        private final String unsupportedSamplingParameter;
         private UpstreamFailure(int httpStatus, String code, String message) {
+            this(httpStatus, code, message, null);
+        }
+        private UpstreamFailure(int httpStatus, String code, String message, String unsupportedSamplingParameter) {
             super(message);
             this.httpStatus = httpStatus;
             this.code = code;
+            this.unsupportedSamplingParameter = unsupportedSamplingParameter;
         }
     }
 
@@ -923,7 +989,11 @@ public class RelayProxyService implements DisposableBean {
         }
         for (CanonicalStreamEvent event : events) {
             switch (event.type()) {
-                case ERROR -> throw classifyUpstreamFailure(200, event.error(), language);
+                case ERROR -> {
+                    logUpstreamRejection(state.requestId, state.configurationId, adapter.code(), 200,
+                            event.error(), "text/event-stream");
+                    throw classifyUpstreamFailure(200, event.error(), language);
+                }
                 case USAGE -> state.usage = normalizeUsage(adapter.code(), event.usage(), state.usage);
                 case MODEL -> {
                     String reported = event.model() == null ? "" : event.model().trim();
@@ -934,11 +1004,16 @@ public class RelayProxyService implements DisposableBean {
                     }
                     if (!reported.isEmpty()) state.reportedModelId = reported;
                 }
-                case TEXT_DELTA -> {
+                case TEXT_DELTA, TEXT_SNAPSHOT -> {
                     if (event.text() == null || event.text().isEmpty()) break;
+                    StringBuilder received = state.textByOutput.computeIfAbsent(event.index(), ignored -> new StringBuilder());
+                    String delta = event.type() == CanonicalStreamEvent.Type.TEXT_SNAPSHOT
+                            ? snapshotSuffix(received, event.text(), language) : event.text();
+                    received.append(delta);
+                    if (delta.isEmpty()) break;
                     state.markFirstOutput();
                     output.write(KiroProtocol.event(mapper, "assistantResponseEvent",
-                            Map.of("content", event.text(), "modelId", model)));
+                            Map.of("content", delta, "modelId", model)));
                 }
                 case REASONING_DELTA -> {
                     if (event.text() == null || event.text().isEmpty()) break;
@@ -956,15 +1031,17 @@ public class RelayProxyService implements DisposableBean {
                         output.write(KiroProtocol.event(mapper, "toolUseEvent",
                                 Map.of("name", tool.name, "toolUseId", tool.id)));
                         tool.started = true;
+                        emitPendingToolInput(tool, state, output);
                     }
                 }
-                case TOOL_DELTA -> {
+                case TOOL_DELTA, TOOL_SNAPSHOT -> {
                     ToolState tool = state.tools.computeIfAbsent(event.index(), ignored ->
                             new ToolState("tooluse_" + System.nanoTime() + "_" + event.index(), ""));
                     if (event.text() != null && !event.text().isEmpty()) {
-                        tool.input.append(event.text());
-                        output.write(KiroProtocol.event(mapper, "toolUseEvent",
-                                Map.of("input", event.text(), "name", tool.name, "toolUseId", tool.id)));
+                        String delta = event.type() == CanonicalStreamEvent.Type.TOOL_SNAPSHOT
+                                ? snapshotSuffix(tool.input, event.text(), language) : event.text();
+                        tool.input.append(delta);
+                        emitPendingToolInput(tool, state, output);
                     }
                 }
                 case FINISH -> {
@@ -980,6 +1057,22 @@ public class RelayProxyService implements DisposableBean {
             }
         }
         output.flush();
+    }
+
+    private void emitPendingToolInput(ToolState tool, StreamState state, OutputStream output) throws IOException {
+        if (!tool.started || tool.emittedInputLength == tool.input.length()) return;
+        String delta = tool.input.substring(tool.emittedInputLength);
+        state.markFirstOutput();
+        output.write(KiroProtocol.event(mapper, "toolUseEvent",
+                Map.of("input", delta, "name", tool.name, "toolUseId", tool.id)));
+        tool.emittedInputLength = tool.input.length();
+    }
+
+    private static String snapshotSuffix(StringBuilder received, String complete, String language) throws IOException {
+        if (!complete.startsWith(received.toString())) throw new IOException(RelayLanguage.text(language,
+                "服务节点的完整响应与流式片段不一致，本次未执行不完整的工具调用。",
+                "The service node returned inconsistent stream fragments and the incomplete tool call was not executed."));
+        return complete.substring(received.length());
     }
 
     /** All downstream metadata and billing consume one OpenAI-shaped normalized usage object. */
@@ -1099,6 +1192,7 @@ public class RelayProxyService implements DisposableBean {
         private final String requestedModelId;
         private final String platformModelId;
         private final Map<Integer, ToolState> tools = new LinkedHashMap<>();
+        private final Map<Integer, StringBuilder> textByOutput = new LinkedHashMap<>();
         private JsonNode usage = com.fasterxml.jackson.databind.node.MissingNode.getInstance();
         private UsageBillingService.Charge charge;
         private Long configurationId;
@@ -1138,6 +1232,7 @@ public class RelayProxyService implements DisposableBean {
         private String name;
         private final StringBuilder input = new StringBuilder();
         private boolean started;
+        private int emittedInputLength;
 
         private ToolState(String id, String name) {
             this.id = id;

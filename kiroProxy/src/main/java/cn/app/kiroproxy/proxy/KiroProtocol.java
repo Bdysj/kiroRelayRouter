@@ -157,8 +157,9 @@ public final class KiroProtocol {
         if (history.isArray()) for (JsonNode item : history) {
             if (item.has("userInputMessage")) {
                 JsonNode user = item.path("userInputMessage");
-                messages.add(userMessage(mapper, user));
-                addToolResults(messages, user.path("userInputMessageContext").path("toolResults"));
+                JsonNode results = user.path("userInputMessageContext").path("toolResults");
+                addToolResults(messages, results);
+                if (hasUserContent(user, results)) messages.add(userMessage(mapper, user));
             } else if (item.has("assistantResponseMessage")) {
                 messages.add(assistantMessage(mapper, item.path("assistantResponseMessage")));
             }
@@ -172,10 +173,8 @@ public final class KiroProtocol {
             messages.insert(0, mapper.createObjectNode().put("role", "system").put("content", systemPrompt.asText()));
         }
         JsonNode results = context.path("toolResults");
-        if (!current.path("content").asText("").isEmpty() || current.path("content").isArray()
-                || !imageBlocks(current).isEmpty() || !documentBlocks(current).isEmpty()
-                || !results.isArray() || results.isEmpty()) messages.add(userMessage(mapper, current));
         addToolResults(messages, results);
+        if (hasUserContent(current, results)) messages.add(userMessage(mapper, current));
 
         ObjectNode request = mapper.createObjectNode().put("model", model).put("stream", true);
         request.set("messages", messages);
@@ -198,6 +197,13 @@ public final class KiroProtocol {
         if (inference.has("maxTokens")) request.put("max_tokens", inference.path("maxTokens").asInt());
         if (inference.path("temperature").isNumber()) request.put("temperature", inference.path("temperature").asDouble());
         return request;
+    }
+
+    private static boolean hasUserContent(JsonNode message, JsonNode results) {
+        JsonNode content = message.path("content");
+        return !content.asText("").isEmpty() || (content.isArray() && !content.isEmpty())
+                || !imageBlocks(message).isEmpty() || !documentBlocks(message).isEmpty()
+                || !results.isArray() || results.isEmpty();
     }
 
     private static ObjectNode userMessage(ObjectMapper mapper, JsonNode message) {
