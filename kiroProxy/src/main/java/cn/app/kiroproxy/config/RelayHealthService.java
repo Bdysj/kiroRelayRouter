@@ -60,12 +60,18 @@ public class RelayHealthService implements DisposableBean {
 
     public synchronized HealthSummary checkAllNow() {
         List<RelayEndpoint> endpoints = repository.findEnabledEndpoints();
-        var futures = endpoints.stream().map(endpoint ->
-                java.util.concurrent.CompletableFuture.supplyAsync(() -> check(endpoint), checks)).toList();
+        var futures = endpoints.stream()
+                // An endpoint without enabled model bindings cannot receive business traffic.
+                // Do not probe its upstream /models endpoint: some providers return misleading
+                // account/balance errors there even though no route is configured locally.
+                .filter(endpoint -> !endpoint.modelIds().isEmpty())
+                .map(endpoint -> java.util.concurrent.CompletableFuture.supplyAsync(() -> check(endpoint), checks)).toList();
         long up = futures.stream().map(java.util.concurrent.CompletableFuture::join)
                 .filter(Boolean::booleanValue).count();
+        endpoints.stream().filter(endpoint -> endpoint.modelIds().isEmpty())
+                .forEach(endpoint -> repository.markHealthNotApplicable(endpoint.id()));
         selector.reload();
-        return new HealthSummary(endpoints.size(), up);
+        return new HealthSummary(futures.size(), up);
     }
 
     public void reloadSelector() {
@@ -75,6 +81,13 @@ public class RelayHealthService implements DisposableBean {
     public synchronized HealthResult checkOneNow(long id) {
         RelayEndpoint endpoint = repository.findEndpoint(id)
                 .orElseThrow(() -> new IllegalArgumentException("中转配置不存在"));
+        if (endpoint.modelIds().isEmpty()) {
+            repository.markHealthNotApplicable(id);
+            selector.reload();
+            RelayEndpoint refreshed = repository.findEndpoint(id).orElseThrow();
+            return new HealthResult(id, false, refreshed.healthStatus().name(), refreshed.lastHealthLatencyMs(),
+                    refreshed.lastHealthCheckAt());
+        }
         boolean up = check(endpoint);
         selector.reload();
         RelayEndpoint refreshed = repository.findEndpoint(id).orElseThrow();

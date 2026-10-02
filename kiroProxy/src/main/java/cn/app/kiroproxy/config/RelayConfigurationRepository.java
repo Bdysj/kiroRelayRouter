@@ -195,6 +195,14 @@ public class RelayConfigurationRepository {
                 """, enabled, id);
     }
 
+    public void markHealthNotApplicable(long id) {
+        jdbc.update("""
+                update relay_configuration set health_status='UNKNOWN', failure_count=0,
+                  last_health_check_at=null, last_health_latency_ms=null, last_failure_at=null
+                where id=?
+                """, id);
+    }
+
     public void markHealth(long id, boolean up, long latencyMs) {
         if (up) {
             jdbc.update("""
