@@ -74,8 +74,11 @@ export const relays: typeof zhRelays = {
     pathOverridePlaceholder: 'Use default path',
     testModel: 'Sample test model',
     testModelPlaceholder: 'Select a mounted model that matches this protocol',
-    noEligibleModels:
-      'None of the mounted models can be used with this protocol. Under auto mixing, unknown aliases need a model × protocol mapping in Routing & Pricing.',
+    noBoundModels:
+      'This relay has no enabled, bound models, so sampling is unavailable. Bind a model in the new tab, then return here to select and test it; your current edits will remain open.',
+    noProtocolModels:
+      'This relay has bound models, but none match the current protocol. Check the model × protocol mapping in Routing & Pricing or change the protocol strategy.',
+    goBindModels: 'Go bind models',
     legendPassed: 'Green: passed',
     legendFailed: 'Red: failed',
     legendUntested: 'Default: not tested in this run',

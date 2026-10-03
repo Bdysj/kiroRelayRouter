@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity,
+  ArrowUpRight,
   CircleAlert,
   Loader2,
   Pencil,
@@ -644,6 +645,9 @@ function RelayDialog({
                         form.protocolStrategy
                       )}
                       testModelId={selectedModelId(item.code)}
+                      hasMountedModels={Boolean(models.data?.length)}
+                      modelsLoading={models.isLoading}
+                      relayId={relay?.id}
                       testResult={testResults[item.code]}
                       testVerified={Boolean(
                         verifiedDrafts[item.code]?.fingerprint ===
@@ -857,6 +861,9 @@ function ProtocolEditor({
   testing,
   testModels,
   testModelId,
+  hasMountedModels,
+  modelsLoading,
+  relayId,
   onTestModelChange,
   testVerified,
   testDisabled,
@@ -868,6 +875,9 @@ function ProtocolEditor({
   testing: boolean
   testModels: RelayTestModel[]
   testModelId: string
+  hasMountedModels: boolean
+  modelsLoading: boolean
+  relayId?: number
   onTestModelChange: (modelId: string) => void
   testVerified: boolean
   testDisabled: boolean
@@ -941,6 +951,7 @@ function ProtocolEditor({
         <select
           className='h-10 w-full rounded-md border border-input bg-background px-3 text-sm'
           value={testModelId}
+          disabled={modelsLoading || testModels.length === 0}
           onChange={(event) => onTestModelChange(event.target.value)}
         >
           <option value=''>{t('relays.protocol.testModelPlaceholder')}</option>
@@ -950,10 +961,31 @@ function ProtocolEditor({
             </option>
           ))}
         </select>
-        {!testModels.length && (
-          <p className='mt-1 text-xs text-amber-700'>
-            {t('relays.protocol.noEligibleModels')}
-          </p>
+        {!modelsLoading && !testModels.length && (
+          <div className='mt-2 space-y-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3'>
+            <div className='flex items-start gap-2 text-xs leading-relaxed text-amber-800 dark:text-amber-300'>
+              <CircleAlert className='mt-0.5 size-4 shrink-0' />
+              <span>
+                {t(
+                  hasMountedModels
+                    ? 'relays.protocol.noProtocolModels'
+                    : 'relays.protocol.noBoundModels'
+                )}
+              </span>
+            </div>
+            {relayId && !hasMountedModels ? (
+              <Button asChild size='sm' variant='outline'>
+                <a
+                  href={`/routes-pricing?relayId=${relayId}`}
+                  target='_blank'
+                  rel='noreferrer'
+                >
+                  {t('relays.protocol.goBindModels')}
+                  <ArrowUpRight />
+                </a>
+              </Button>
+            ) : null}
+          </div>
         )}
       </Field>
       <div className='flex flex-wrap gap-x-4 gap-y-2'>

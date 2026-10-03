@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Map;
 
 public final class AnthropicMessagesAdapter implements ProtocolAdapter {
+    public static final String PROMPT_CACHE_ENABLED = "_anthropic_prompt_cache_enabled";
+
     @Override public ProtocolCode code() { return ProtocolCode.ANTHROPIC_MESSAGES; }
 
     @Override public ObjectNode encode(ObjectMapper mapper, ObjectNode canonical) {
@@ -63,7 +65,42 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
                 target.set("input_schema", function.path("parameters"));
             }
         }
+        if (canonical.path(PROMPT_CACHE_ENABLED).asBoolean(false)) applyPromptCache(result);
         return result;
+    }
+
+    private static void applyPromptCache(ObjectNode request) {
+        // 缓存键按 tools → system → messages 累积。分别标记稳定前缀，避免动态 system
+        // 或新一轮正文变化时连工具定义也无法复用。使用显式断点兼容未支持顶层自动缓存的中转站。
+        JsonNode tools = request.path("tools");
+        if (tools.isArray() && !tools.isEmpty()) markCache((ObjectNode) tools.get(tools.size() - 1));
+        JsonNode system = request.path("system");
+        if (system.isTextual() && !system.asText().isEmpty()) {
+            ObjectNode block = request.putArray("system").addObject()
+                    .put("type", "text").put("text", system.asText());
+            markCache(block);
+        }
+        // 最多四个断点：工具、system、最近两条非空 user 消息（含 tool_result）。
+        // 上一条 user 是上一轮写入的位置，显式保留它，避免长工具调用超出自动回溯窗口；
+        // 当前 user 写入新的前缀。不在空文本块上标记，以免上游拒绝请求。
+        JsonNode messages = request.path("messages");
+        int marked = 0;
+        for (int index = messages.size() - 1; index >= 0 && marked < 2; index--) {
+            if (!"user".equals(messages.get(index).path("role").asText())) continue;
+            JsonNode content = messages.get(index).path("content");
+            for (int blockIndex = content.size() - 1; blockIndex >= 0; blockIndex--) {
+                JsonNode block = content.get(blockIndex);
+                if (!block.isObject() || ("text".equals(block.path("type").asText())
+                        && block.path("text").asText().isEmpty())) continue;
+                markCache((ObjectNode) block);
+                marked++;
+                break;
+            }
+        }
+    }
+
+    private static void markCache(ObjectNode block) {
+        block.putObject("cache_control").put("type", "ephemeral");
     }
 
     private static void appendContent(ArrayNode target, JsonNode source) {

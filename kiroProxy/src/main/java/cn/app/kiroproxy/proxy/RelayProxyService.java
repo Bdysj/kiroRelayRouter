@@ -187,12 +187,13 @@ public class RelayProxyService implements DisposableBean {
             long inputTokens = state.usage.path("prompt_tokens").asLong(0);
             long outputTokens = state.usage.path("completion_tokens").asLong(0);
             long cachedTokens = state.usage.path("prompt_tokens_details").path("cached_tokens").asLong(0);
+            long cacheWriteTokens = state.usage.path("prompt_tokens_details").path("cache_write_tokens").asLong(0);
             ObjectNode metadata = mapper.createObjectNode();
             metadata.putObject("tokenUsage")
-                    .put("uncachedInputTokens", Math.max(0, inputTokens - cachedTokens))
+                    .put("uncachedInputTokens", Math.max(0, inputTokens - cachedTokens - cacheWriteTokens))
                     .put("outputTokens", outputTokens)
                     .put("cacheReadInputTokens", cachedTokens)
-                    .put("cacheWriteInputTokens", 0);
+                    .put("cacheWriteInputTokens", cacheWriteTokens);
             metadata.put("stopReason", stopReason(state.finishReason, !state.tools.isEmpty()));
             output.write(KiroProtocol.event(mapper, "metadataEvent", metadata));
             output.write(KiroProtocol.event(mapper, "messageMetadataEvent", Map.of("conversationId", conversationId)));
@@ -350,6 +351,10 @@ public class RelayProxyService implements DisposableBean {
                 ObjectNode canonicalBody = upstreamBody.deepCopy();
                 String sentModelId = endpoint.upstreamModelId(model.modelId());
                 canonicalBody.put("model", sentModelId);
+                if (state.protocol.code() == ProtocolCode.ANTHROPIC_MESSAGES) {
+                    canonicalBody.put(cn.app.kiroproxy.protocol.AnthropicMessagesAdapter.PROMPT_CACHE_ENABLED,
+                            state.protocol.capabilities().contains(ProtocolCapability.PROMPT_CACHE));
+                }
                 if (outputFormat != null) canonicalBody.set("_anthropic_output_format", outputFormat.deepCopy());
                 try {
                     if (state.charge == null) {

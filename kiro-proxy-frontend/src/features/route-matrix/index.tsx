@@ -143,7 +143,11 @@ export function RouteMatrixPage() {
   )
   const [search, setSearch] = useState('')
   const [protocolStrategy, setProtocolStrategy] = useState('')
-  const [relayId, setRelayId] = useState('')
+  const [relayId, setRelayId] = useState(() =>
+    typeof window === 'undefined'
+      ? ''
+      : (new URLSearchParams(window.location.search).get('relayId') ?? '')
+  )
   const [status, setStatus] = useState('')
   const [boundOnly, setBoundOnly] = useState(false)
   const [selected, setSelected] = useState<string[]>([])

@@ -71,8 +71,11 @@ export const relays = {
     pathOverridePlaceholder: '使用默认路径',
     testModel: '抽样测试模型',
     testModelPlaceholder: '请选择与当前协议匹配的已挂载模型',
-    noEligibleModels:
-      '已挂载模型中没有可用于此协议的模型。自动混合下未知别名需要在路由与价格中配置模型×协议映射。',
+    noBoundModels:
+      '此中转站当前没有已绑定且启用的模型，因此暂时无法抽样测试。可在新标签页绑定模型，返回后即可选择并测试；当前编辑内容会保留。',
+    noProtocolModels:
+      '此中转站虽已绑定模型，但没有模型与当前协议匹配。请在路由与价格中检查模型×协议映射或切换协议策略。',
+    goBindModels: '前往绑定模型',
     legendPassed: '绿色：已通过',
     legendFailed: '红色：测试失败',
     legendUntested: '默认色：本次未专项测试',
