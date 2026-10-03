@@ -140,23 +140,40 @@ public final class OpenAiResponsesAdapter implements ProtocolAdapter {
                 && "function_call".equals(event.path("item").path("type").asText())) {
             JsonNode item = event.path("item");
             result.add(CanonicalStreamEvent.tool(CanonicalStreamEvent.Type.TOOL_START,
-                    event.path("output_index").asInt(), item.path("call_id").asText(null),
-                    item.path("name").asText(null), null));
-        } else if ("response.function_call_arguments.delta".equals(type)) result.add(CanonicalStreamEvent.tool(
-                CanonicalStreamEvent.Type.TOOL_DELTA, event.path("output_index").asInt(), null, null,
-                event.path("delta").asText()));
-        else if ("response.function_call_arguments.done".equals(type)) result.add(CanonicalStreamEvent.tool(
-                CanonicalStreamEvent.Type.TOOL_SNAPSHOT, event.path("output_index").asInt(), null, null,
-                event.path("arguments").asText()));
-        else if ("response.output_item.done".equals(type)) {
-            addCompletedItem(result, event.path("item"), event.path("output_index").asInt());
+                    outputIndex(event), firstText(event, item, "call_id"), firstText(event, item, "item_id", "id"),
+                    firstText(event, item, "name"), null));
+        } else if ("response.function_call_arguments.delta".equals(type)) {
+            JsonNode item = event.path("item");
+            result.add(CanonicalStreamEvent.tool(CanonicalStreamEvent.Type.TOOL_DELTA,
+                    outputIndex(event), firstText(event, item, "call_id"), firstText(event, item, "item_id", "id"),
+                    firstText(event, item, "name"), event.path("delta").asText()));
+        } else if ("response.function_call_arguments.done".equals(type)) {
+            JsonNode item = event.path("item");
+            String arguments = textOrNull(event, "arguments");
+            if (arguments == null) arguments = textOrNull(item, "arguments");
+            int index = outputIndex(event);
+            String id = firstText(event, item, "call_id");
+            String itemId = firstText(event, item, "item_id", "id");
+            String name = firstText(event, item, "name");
+            result.add(CanonicalStreamEvent.tool(CanonicalStreamEvent.Type.TOOL_SNAPSHOT,
+                    index, id, itemId, name, arguments == null ? "" : arguments));
+            // Responses closes a function-call item at arguments.done.  Emit
+            // that boundary explicitly so the Kiro stream can close the
+            // corresponding tool block before response.completed arrives.
+            result.add(CanonicalStreamEvent.toolDone(index, id, itemId, name));
+        } else if ("response.output_item.done".equals(type)) {
+            addCompletedItem(result, event.path("item"), outputIndex(event));
         } else if ("response.completed".equals(type) || "response.incomplete".equals(type)) {
             JsonNode response = event.path("response");
             if (response.hasNonNull("error") || "failed".equals(response.path("status").asText())) {
                 return List.of(CanonicalStreamEvent.error(response));
             }
             int index = 0;
-            for (JsonNode item : response.path("output")) addCompletedItem(result, item, index++);
+            for (JsonNode item : response.path("output")) {
+                int outputIndex = item.path("output_index").isInt() ? item.path("output_index").asInt() : index;
+                addCompletedItem(result, item, outputIndex);
+                index++;
+            }
             if (response.hasNonNull("usage")) result.add(CanonicalStreamEvent.usage(response.path("usage")));
             if (response.path("model").isTextual()) result.add(CanonicalStreamEvent.model(response.path("model").asText()));
             String reason = "response.incomplete".equals(type)
@@ -166,12 +183,35 @@ public final class OpenAiResponsesAdapter implements ProtocolAdapter {
         }
         return result;
     }
+    private static int outputIndex(JsonNode event) {
+        return event.path("output_index").isInt() ? event.path("output_index").asInt() : -1;
+    }
+
+    private static String textOrNull(JsonNode node, String... fields) {
+        for (String field : fields) {
+            if (node.path(field).isTextual() && !node.path(field).asText().isBlank()) {
+                return node.path(field).asText();
+            }
+        }
+        return null;
+    }
+
+    private static String firstText(JsonNode event, JsonNode item, String... fields) {
+        String value = textOrNull(event, fields);
+        return value != null ? value : textOrNull(item, fields);
+    }
+
     private static void addCompletedItem(List<CanonicalStreamEvent> events, JsonNode item, int index) {
         if ("function_call".equals(item.path("type").asText())) {
-            events.add(CanonicalStreamEvent.tool(CanonicalStreamEvent.Type.TOOL_START, index,
-                    item.path("call_id").asText(null), item.path("name").asText(null), null));
+            String id = textOrNull(item, "call_id", "id");
+            String name = textOrNull(item, "name");
+            String itemId = textOrNull(item, "id");
+            events.add(CanonicalStreamEvent.tool(CanonicalStreamEvent.Type.TOOL_START, index, id, itemId, name, null));
             if (item.path("arguments").isTextual()) events.add(CanonicalStreamEvent.tool(
-                    CanonicalStreamEvent.Type.TOOL_SNAPSHOT, index, null, null, item.path("arguments").asText()));
+                    CanonicalStreamEvent.Type.TOOL_SNAPSHOT, index, id, itemId, name, item.path("arguments").asText()));
+            // output_item.done is the terminal boundary for gateways that do
+            // not expose function_call_arguments.done.
+            events.add(CanonicalStreamEvent.toolDone(index, id, itemId, name));
         } else if ("message".equals(item.path("type").asText())) {
             StringBuilder text = new StringBuilder();
             for (JsonNode part : item.path("content")) {

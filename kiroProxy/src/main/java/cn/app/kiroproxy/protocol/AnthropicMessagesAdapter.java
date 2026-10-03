@@ -26,9 +26,12 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
             }
             if ("tool".equals(role)) {
                 ObjectNode item = messages.addObject().put("role", "user");
-                item.putArray("content").addObject().put("type", "tool_result")
-                        .put("tool_use_id", message.path("tool_call_id").asText())
-                        .put("content", message.path("content").asText());
+                ObjectNode resultBlock = item.putArray("content").addObject().put("type", "tool_result")
+                        .put("tool_use_id", message.path("tool_call_id").asText());
+                JsonNode toolContent = message.path("content");
+                if (toolContent.isTextual()) resultBlock.put("content", toolContent.asText());
+                else if (toolContent.isArray() || toolContent.isObject()) resultBlock.set("content", toolContent.deepCopy());
+                else resultBlock.put("content", "");
                 continue;
             }
             ObjectNode item = messages.addObject().put("role", role);
@@ -114,9 +117,31 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
             JsonNode block = event.path("content_block");
             if ("text".equals(block.path("type").asText()) && !block.path("text").asText("").isEmpty())
                 result.add(CanonicalStreamEvent.text(CanonicalStreamEvent.Type.TEXT_DELTA, block.path("text").asText()));
-            if ("tool_use".equals(block.path("type").asText())) result.add(CanonicalStreamEvent.tool(
-                    CanonicalStreamEvent.Type.TOOL_START, event.path("index").asInt(), block.path("id").asText(null),
-                    block.path("name").asText(null), null));
+            if ("tool_use".equals(block.path("type").asText())) {
+                int index = event.path("index").asInt();
+                result.add(CanonicalStreamEvent.tool(
+                        CanonicalStreamEvent.Type.TOOL_START, index, block.path("id").asText(null),
+                        block.path("name").asText(null), null));
+                // The documented streaming shape sends input via
+                // input_json_delta, but compatible gateways sometimes include
+                // the complete input in content_block_start. Preserve it as a
+                // snapshot instead of silently dropping the tool arguments.
+                JsonNode input = block.path("input");
+                // Anthropic's normal streaming shape includes input: {} in
+                // content_block_start as an initializer. It is not a complete
+                // arguments snapshot: the real JSON arrives afterwards through
+                // input_json_delta. Treating this empty object as received
+                // arguments makes the next delta look inconsistent ("{}" is
+                // not a prefix of '{...}') and aborts an otherwise successful
+                // tool call after the upstream has already charged the request.
+                boolean nonEmptySnapshot = input.isTextual() ? !input.asText().isBlank()
+                        : input.isObject() ? !input.isEmpty()
+                        : input.isArray() && !input.isEmpty();
+                if (!input.isMissingNode() && !input.isNull() && nonEmptySnapshot) {
+                    result.add(CanonicalStreamEvent.tool(CanonicalStreamEvent.Type.TOOL_SNAPSHOT,
+                            index, null, null, input.isTextual() ? input.asText() : input.toString()));
+                }
+            }
         } else if ("content_block_delta".equals(type)) {
             JsonNode delta = event.path("delta");
             if ("text_delta".equals(delta.path("type").asText())) result.add(CanonicalStreamEvent.text(
@@ -126,6 +151,14 @@ public final class AnthropicMessagesAdapter implements ProtocolAdapter {
             if ("input_json_delta".equals(delta.path("type").asText())) result.add(CanonicalStreamEvent.tool(
                     CanonicalStreamEvent.Type.TOOL_DELTA, event.path("index").asInt(), null, null,
                     delta.path("partial_json").asText()));
+        } else if ("content_block_stop".equals(type)) {
+            JsonNode block = event.path("content_block");
+            // Anthropic's content_block_stop is the exact equivalent of
+            // Responses function_call_arguments.done for tool_use blocks.
+            // The block type is often omitted, so rely on the stream index;
+            // the relay correlates it with the preceding tool_use start.
+            result.add(CanonicalStreamEvent.toolDone(event.path("index").asInt(),
+                    block.path("id").asText(null), null, block.path("name").asText(null)));
         } else if ("message_delta".equals(type)) {
             if (event.hasNonNull("usage")) result.add(CanonicalStreamEvent.usage(event.path("usage")));
             if (event.path("delta").path("stop_reason").isTextual()) result.add(CanonicalStreamEvent.finish(

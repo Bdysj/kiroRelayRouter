@@ -179,10 +179,11 @@ public class RelayProxyService implements DisposableBean {
                     requiredCapabilities, lang, conversationId, affinityBinding, outputFormat);
 
             validateCompletedTools(state, lang);
-            for (ToolState tool : state.tools.values()) if (tool.started) {
-                output.write(KiroProtocol.event(mapper, "toolUseEvent",
-                        Map.of("name", tool.name, "stop", true, "toolUseId", tool.id)));
-            }
+            // Most adapters close each tool at its protocol boundary
+            // (arguments.done/content_block_stop).  Keep this final pass only
+            // as a compatibility fallback for providers that send a complete
+            // function call only in response.completed.
+            for (ToolState tool : state.tools.values()) stopTool(tool, state, output);
             long inputTokens = state.usage.path("prompt_tokens").asLong(0);
             long outputTokens = state.usage.path("completion_tokens").asLong(0);
             long cachedTokens = state.usage.path("prompt_tokens_details").path("cached_tokens").asLong(0);
@@ -643,13 +644,8 @@ public class RelayProxyService implements DisposableBean {
 
     private void validateCompletedTools(StreamState state, String language) throws UpstreamFailure {
         if (state.tools.isEmpty()) return;
-        if (isOutputLimit(state.finishReason)) {
-            throw new UpstreamFailure(200, "TOOL_CALL_TRUNCATED", RelayLanguage.text(language,
-                    "写文件工具的参数达到了模型输出上限，本次未执行不完整的写入；请继续生成或改为分段写入。",
-                    "The file-writing tool arguments reached the model output limit. The incomplete write was not executed; continue or write the document in smaller sections."));
-        }
         for (ToolState tool : state.tools.values()) {
-            if (!tool.started) {
+            if (!tool.started || tool.name == null || tool.name.isBlank()) {
                 throw new UpstreamFailure(200, "INVALID_TOOL_ARGUMENTS", RelayLanguage.text(language,
                         "服务节点返回的工具调用不完整，本次未执行写入。",
                         "The service node returned an incomplete tool call. The write was not executed."));
@@ -661,6 +657,16 @@ public class RelayProxyService implements DisposableBean {
                 JsonNode input = mapper.readTree(tool.input.toString());
                 if (input == null || !input.isObject()) throw new IOException("tool input is not an object");
             } catch (IOException error) {
+                // A max_tokens/length stop is not, by itself, proof that a
+                // tool call was truncated. Anthropic-compatible gateways can
+                // report that stop reason after emitting a complete tool_use
+                // block. Only reject it when the JSON we actually received is
+                // incomplete (or otherwise invalid).
+                if (isOutputLimit(state.finishReason)) {
+                    throw new UpstreamFailure(200, "TOOL_CALL_TRUNCATED", RelayLanguage.text(language,
+                            "写文件工具的参数达到了模型输出上限，本次未执行不完整的写入；请继续生成或改为分段写入。",
+                            "The file-writing tool arguments reached the model output limit. The incomplete write was not executed; continue or write the document in smaller sections."));
+                }
                 throw new UpstreamFailure(200, "INVALID_TOOL_ARGUMENTS", RelayLanguage.text(language,
                         "服务节点返回的工具参数不完整，本次未执行写入；请重试或改为分段写入。",
                         "The service node returned incomplete tool arguments. The write was not executed; retry or write the document in smaller sections."));
@@ -977,9 +983,58 @@ public class RelayProxyService implements DisposableBean {
         output.flush();
     }
 
+    /**
+     * Records only Responses event metadata. The upstream payload can contain
+     * prompts, file contents, or tool arguments, so never log the full event.
+     * This is intentionally useful at DEBUG level when a provider has charged
+     * a request but Kiro rejects the downstream tool stream.
+     */
+    private void logResponsesEvent(String requestId, String eventName, String data) {
+        try {
+            JsonNode event = mapper.readTree(data);
+            if (event == null || !event.isObject()) return;
+            JsonNode item = event.path("item");
+            JsonNode response = event.path("response");
+            String type = event.path("type").asText(eventName);
+            JsonNode output = response.path("output");
+            int outputSize = output.isArray() ? output.size() : 0;
+            log.debug("relay responses_event request={} type={} output_index={} item_id={} call_id={} name={} "
+                            + "delta_len={} arguments_len={} output_items={} response_status={}",
+                    requestId, type,
+                    firstInt(event, "output_index"),
+                    firstText(event, item, "item_id", "id"),
+                    firstText(event, item, "call_id"),
+                    firstText(event, item, "name"),
+                    textLength(event, "delta"),
+                    textLength(event, "arguments") > 0 ? textLength(event, "arguments")
+                            : textLength(item, "arguments"),
+                    outputSize, response.path("status").asText(""));
+        } catch (Exception ignored) {
+            // The adapter owns malformed-event handling; diagnostics must not
+            // change the relay's behavior.
+        }
+    }
+
+    private static int firstInt(JsonNode node, String field) {
+        return node.path(field).isInt() ? node.path(field).asInt() : -1;
+    }
+
+    private static String firstText(JsonNode event, JsonNode item, String... fields) {
+        for (String field : fields) {
+            if (event.path(field).isTextual() && !event.path(field).asText().isBlank()) return event.path(field).asText();
+            if (item.path(field).isTextual() && !item.path(field).asText().isBlank()) return item.path(field).asText();
+        }
+        return "";
+    }
+
+    private static int textLength(JsonNode node, String field) {
+        return node.path(field).isTextual() ? node.path(field).asText().length() : 0;
+    }
+
     private void processSse(ProtocolAdapter adapter, String eventName, String data, String model,
                             StreamState state, OutputStream output, String language) throws IOException {
         if (data.isBlank()) return;
+        logResponsesEvent(state.requestId, eventName, data);
         java.util.List<CanonicalStreamEvent> events;
         try {
             events = adapter.decode(mapper, eventName, data);
@@ -1022,9 +1077,11 @@ public class RelayProxyService implements DisposableBean {
                     output.write(KiroProtocol.event(mapper, "reasoningContentEvent", Map.of("content", event.text())));
                 }
                 case TOOL_START -> {
-                    ToolState tool = state.tools.computeIfAbsent(event.index(), ignored ->
-                            new ToolState("tooluse_" + System.nanoTime() + "_" + event.index(), ""));
-                    if (event.id() != null && !event.id().isBlank()) tool.id = event.id();
+                    ToolState tool = state.toolFor(event.index(), event.id(), event.itemId());
+                    // The downstream Kiro toolUseId is immutable once the start
+                    // frame has been sent. Responses streams can reveal call_id
+                    // and item_id in different events, so bind aliases in
+                    // StreamState instead of replacing an already-emitted id.
                     if (event.name() != null && !event.name().isBlank()) tool.name = event.name();
                     if (!tool.started && !tool.name.isEmpty()) {
                         state.markFirstOutput();
@@ -1034,13 +1091,51 @@ public class RelayProxyService implements DisposableBean {
                         emitPendingToolInput(tool, state, output);
                     }
                 }
+                case TOOL_DONE -> {
+                    // Anthropic emits content_block_stop for every content block,
+                    // including ordinary text and thinking blocks.  A terminal
+                    // event must never create a synthetic empty tool: doing so
+                    // changes metadata.stopReason to tool_use even though no
+                    // tool was requested.  Only close a tool that was opened by
+                    // TOOL_START or received arguments earlier in this stream.
+                    ToolState tool = state.existingToolFor(event.index(), event.id(), event.itemId());
+                    if (tool == null) break;
+                    if (event.name() != null && !event.name().isBlank()) tool.name = event.name();
+                    tool.argumentsDone = true;
+                    stopTool(tool, state, output);
+                }
                 case TOOL_DELTA, TOOL_SNAPSHOT -> {
-                    ToolState tool = state.tools.computeIfAbsent(event.index(), ignored ->
-                            new ToolState("tooluse_" + System.nanoTime() + "_" + event.index(), ""));
+                    ToolState tool = state.toolFor(event.index(), event.id(), event.itemId());
+                    // The downstream Kiro toolUseId is immutable once the start
+                    // frame has been sent. Responses streams can reveal call_id
+                    // and item_id in different events, so bind aliases in
+                    // StreamState instead of replacing an already-emitted id.
+                    if (event.name() != null && !event.name().isBlank()) tool.name = event.name();
+                    // Some Responses-compatible gateways omit output_item.added and
+                    // start with an arguments delta/done event.  Match cc-switch's
+                    // tolerant behavior: once the name is known, open the Kiro tool
+                    // block before emitting its arguments.
+                    if (!tool.started && tool.name != null && !tool.name.isBlank()) {
+                        state.markFirstOutput();
+                        output.write(KiroProtocol.event(mapper, "toolUseEvent",
+                                Map.of("name", tool.name, "toolUseId", tool.id)));
+                        tool.started = true;
+                    }
                     if (event.text() != null && !event.text().isEmpty()) {
                         String delta = event.type() == CanonicalStreamEvent.Type.TOOL_SNAPSHOT
                                 ? snapshotSuffix(tool.input, event.text(), language) : event.text();
                         tool.input.append(delta);
+                        if (event.type() == CanonicalStreamEvent.Type.TOOL_DELTA && !delta.isEmpty()) {
+                            tool.hadDelta = true;
+                        }
+                        emitPendingToolInput(tool, state, output);
+                    } else if (event.type() == CanonicalStreamEvent.Type.TOOL_SNAPSHOT && tool.hadDelta) {
+                        // Some Responses gateways send arguments.delta and then
+                        // an arguments.done event with arguments="". The empty
+                        // terminal snapshot is not a replacement for the
+                        // already accumulated delta (cc-switch keeps that
+                        // buffer), so do not treat it as an inconsistent
+                        // snapshot or erase the input already sent to Kiro.
                         emitPendingToolInput(tool, state, output);
                     }
                 }
@@ -1059,6 +1154,14 @@ public class RelayProxyService implements DisposableBean {
         output.flush();
     }
 
+    private void stopTool(ToolState tool, StreamState state, OutputStream output) throws IOException {
+        if (!tool.started || tool.stopped) return;
+        state.markFirstOutput();
+        output.write(KiroProtocol.event(mapper, "toolUseEvent",
+                Map.of("name", tool.name, "stop", true, "toolUseId", tool.id)));
+        tool.stopped = true;
+    }
+
     private void emitPendingToolInput(ToolState tool, StreamState state, OutputStream output) throws IOException {
         if (!tool.started || tool.emittedInputLength == tool.input.length()) return;
         String delta = tool.input.substring(tool.emittedInputLength);
@@ -1068,11 +1171,27 @@ public class RelayProxyService implements DisposableBean {
         tool.emittedInputLength = tool.input.length();
     }
 
-    private static String snapshotSuffix(StringBuilder received, String complete, String language) throws IOException {
-        if (!complete.startsWith(received.toString())) throw new IOException(RelayLanguage.text(language,
+    private String snapshotSuffix(StringBuilder received, String complete, String language) throws IOException {
+        String prefix = received.toString();
+        if (complete.startsWith(prefix)) return complete.substring(prefix.length());
+        // A terminal snapshot may be shorter than an already emitted delta.
+        // Treat it as a harmless confirmation only when it is itself a complete
+        // JSON object.  Silently accepting a truncated prefix would otherwise
+        // make the relay report success for an actually incomplete tool call.
+        if (prefix.startsWith(complete) && isJsonObject(complete)) return "";
+        throw new IOException(RelayLanguage.text(language,
                 "服务节点的完整响应与流式片段不一致，本次未执行不完整的工具调用。",
                 "The service node returned inconsistent stream fragments and the incomplete tool call was not executed."));
-        return complete.substring(received.length());
+    }
+
+    private boolean isJsonObject(String value) {
+        if (value == null || value.isBlank()) return false;
+        try {
+            JsonNode parsed = mapper.readTree(value);
+            return parsed != null && parsed.isObject();
+        } catch (IOException ignored) {
+            return false;
+        }
     }
 
     /** All downstream metadata and billing consume one OpenAI-shaped normalized usage object. */
@@ -1192,6 +1311,18 @@ public class RelayProxyService implements DisposableBean {
         private final String requestedModelId;
         private final String platformModelId;
         private final Map<Integer, ToolState> tools = new LinkedHashMap<>();
+        // Some compatible Responses gateways omit output_index/item_id on an
+        // arguments event. Keep the last correlated tool as the same fallback
+        // used by cc-switch, otherwise one invocation can split into two
+        // Kiro tool blocks and fail during the tool-call handoff.
+        private ToolState lastTool;
+        // Responses does not guarantee that every event carries the same
+        // identifier. Keep independent aliases, matching cc-switch's
+        // item_id-first correlation, so completed snapshots cannot create a
+        // second Kiro tool block.
+        private final Map<String, ToolState> toolsByCallId = new LinkedHashMap<>();
+        private final Map<String, ToolState> toolsByItemId = new LinkedHashMap<>();
+        private final Map<Integer, ToolState> toolsByOutputIndex = new LinkedHashMap<>();
         private final Map<Integer, StringBuilder> textByOutput = new LinkedHashMap<>();
         private JsonNode usage = com.fasterxml.jackson.databind.node.MissingNode.getInstance();
         private UsageBillingService.Charge charge;
@@ -1215,6 +1346,57 @@ public class RelayProxyService implements DisposableBean {
             this.platformModelId = platformModelId;
         }
 
+        private ToolState existingToolFor(int index, String callId, String itemId) {
+            ToolState tool = nonBlank(callId) ? toolsByCallId.get(callId) : null;
+            if (tool == null && nonBlank(itemId)) tool = toolsByItemId.get(itemId);
+            if (tool == null && index >= 0) tool = toolsByOutputIndex.get(index);
+            if (tool == null && index >= 0) tool = tools.get(index);
+            if (tool == null && !nonBlank(callId) && !nonBlank(itemId) && index < 0) tool = lastTool;
+            return tool;
+        }
+
+        private ToolState toolFor(int index, String callId, String itemId) {
+            ToolState tool = nonBlank(callId) ? toolsByCallId.get(callId) : null;
+            if (tool == null && nonBlank(itemId)) tool = toolsByItemId.get(itemId);
+            if (tool == null && index >= 0) tool = toolsByOutputIndex.get(index);
+            if (tool == null && index >= 0) tool = tools.get(index);
+            if (tool == null && !nonBlank(callId) && !nonBlank(itemId) && index < 0) tool = lastTool;
+            if (tool == null) {
+                String stableId = nonBlank(callId) ? callId : "tooluse_" + System.nanoTime() + "_" + index;
+                tool = new ToolState(stableId, "");
+                // A negative index means that this event supplied no usable
+                // output_index. Never put all such tools under the same key.
+                tools.put(nextToolKey(), tool);
+            }
+            if (nonBlank(callId)) {
+                toolsByCallId.put(callId, tool);
+                tool.callId = callId;
+                // If Kiro has not seen the start yet, use the real call_id.
+                // After start, changing id would make the stop frame mismatch.
+                if (!tool.started) tool.id = callId;
+            }
+            if (nonBlank(itemId)) {
+                toolsByItemId.put(itemId, tool);
+                tool.itemId = itemId;
+            }
+            if (index >= 0) {
+                toolsByOutputIndex.put(index, tool);
+                tools.putIfAbsent(index, tool);
+            }
+            lastTool = tool;
+            return tool;
+        }
+
+        private int nextToolKey() {
+            int key = 0;
+            while (tools.containsKey(key)) key++;
+            return key;
+        }
+
+        private static boolean nonBlank(String value) {
+            return value != null && !value.isBlank();
+        }
+
         private void markFirstOutput() {
             if (firstOutputNanos == 0) {
                 firstOutputNanos = System.nanoTime();
@@ -1229,9 +1411,15 @@ public class RelayProxyService implements DisposableBean {
 
     private static final class ToolState {
         private String id;
+        private String callId;
+        private String itemId;
         private String name;
         private final StringBuilder input = new StringBuilder();
         private boolean started;
+        /** True when at least one arguments.delta was forwarded downstream. */
+        private boolean hadDelta;
+        private boolean argumentsDone;
+        private boolean stopped;
         private int emittedInputLength;
 
         private ToolState(String id, String name) {

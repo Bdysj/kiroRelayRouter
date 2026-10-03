@@ -2,32 +2,39 @@ package cn.app.kiroproxy.protocol;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
-public record CanonicalStreamEvent(Type type, String text, int index, String id, String name,
+public record CanonicalStreamEvent(Type type, String text, int index, String id, String itemId, String name,
         JsonNode usage, String model, String finishReason, JsonNode error) {
-    public enum Type { TEXT_DELTA, TEXT_SNAPSHOT, REASONING_DELTA, TOOL_START, TOOL_DELTA, TOOL_SNAPSHOT, USAGE, MODEL, FINISH, DONE, ERROR }
+    public enum Type { TEXT_DELTA, TEXT_SNAPSHOT, REASONING_DELTA, TOOL_START, TOOL_DELTA, TOOL_SNAPSHOT, TOOL_DONE, USAGE, MODEL, FINISH, DONE, ERROR }
 
     public static CanonicalStreamEvent text(Type type, String value) {
         return text(type, 0, value);
     }
     public static CanonicalStreamEvent text(Type type, int index, String value) {
-        return new CanonicalStreamEvent(type, value, index, null, null, null, null, null, null);
+        return new CanonicalStreamEvent(type, value, index, null, null, null, null, null, null, null);
     }
     public static CanonicalStreamEvent tool(Type type, int index, String id, String name, String value) {
-        return new CanonicalStreamEvent(type, value, index, id, name, null, null, null, null);
+        return tool(type, index, id, null, name, value);
     }
+    public static CanonicalStreamEvent tool(Type type, int index, String id, String itemId, String name, String value) {
+        return new CanonicalStreamEvent(type, value, index, id, itemId, name, null, null, null, null);
+    }
+    public static CanonicalStreamEvent toolDone(int index, String id, String itemId, String name) {
+        return tool(Type.TOOL_DONE, index, id, itemId, name, null);
+    }
+
     public static CanonicalStreamEvent usage(JsonNode value) {
-        return new CanonicalStreamEvent(Type.USAGE, null, 0, null, null, value, null, null, null);
+        return new CanonicalStreamEvent(Type.USAGE, null, 0, null, null, null, value, null, null, null);
     }
     public static CanonicalStreamEvent model(String value) {
-        return new CanonicalStreamEvent(Type.MODEL, null, 0, null, null, null, value, null, null);
+        return new CanonicalStreamEvent(Type.MODEL, null, 0, null, null, null, null, value, null, null);
     }
     public static CanonicalStreamEvent finish(String value) {
-        return new CanonicalStreamEvent(Type.FINISH, null, 0, null, null, null, null, value, null);
+        return new CanonicalStreamEvent(Type.FINISH, null, 0, null, null, null, null, null, value, null);
     }
     public static CanonicalStreamEvent simple(Type type) {
-        return new CanonicalStreamEvent(type, null, 0, null, null, null, null, null, null);
+        return new CanonicalStreamEvent(type, null, 0, null, null, null, null, null, null, null);
     }
     public static CanonicalStreamEvent error(JsonNode value) {
-        return new CanonicalStreamEvent(Type.ERROR, null, 0, null, null, null, null, null, value);
+        return new CanonicalStreamEvent(Type.ERROR, null, 0, null, null, null, null, null, null, value);
     }
 }

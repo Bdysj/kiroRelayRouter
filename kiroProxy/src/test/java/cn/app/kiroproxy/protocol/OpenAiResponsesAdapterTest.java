@@ -113,13 +113,38 @@ class OpenAiResponsesAdapterTest {
     }
 
     @Test
+    void correlatesResponsesToolEventsByCallIdAndItemId() throws Exception {
+        var added = adapter.decode(mapper, "", """
+            {"type":"response.output_item.added","output_index":2,
+             "item":{"id":"fc_item_2","type":"function_call","call_id":"call_2","name":"read"}}
+            """);
+        assertThat(added).singleElement().satisfies(event -> {
+            assertThat(event.type()).isEqualTo(CanonicalStreamEvent.Type.TOOL_START);
+            assertThat(event.id()).isEqualTo("call_2");
+            assertThat(event.itemId()).isEqualTo("fc_item_2");
+            assertThat(event.index()).isEqualTo(2);
+        });
+
+        var delta = adapter.decode(mapper, "", """
+            {"type":"response.function_call_arguments.delta","output_index":2,
+             "item_id":"fc_item_2","delta":"{\\\"path\\\":\\\"a.txt\\\"}"}
+            """);
+        assertThat(delta).singleElement().satisfies(event -> {
+            assertThat(event.id()).isNull();
+            assertThat(event.itemId()).isEqualTo("fc_item_2");
+            assertThat(event.text()).isEqualTo("{\"path\":\"a.txt\"}");
+        });
+    }
+
+    @Test
     void recognizesSnapshotsAndNestedFailures() throws Exception {
         var events = adapter.decode(mapper, "", """
             {"type":"response.output_item.done","output_index":3,"item":{"type":"function_call",
                 "call_id":"call-original","name":"read","arguments":"{}"}}
             """);
         assertThat(events).extracting(CanonicalStreamEvent::type).containsExactly(
-                CanonicalStreamEvent.Type.TOOL_START, CanonicalStreamEvent.Type.TOOL_SNAPSHOT);
+                CanonicalStreamEvent.Type.TOOL_START, CanonicalStreamEvent.Type.TOOL_SNAPSHOT,
+                CanonicalStreamEvent.Type.TOOL_DONE);
         assertThat(events.get(0).index()).isEqualTo(3);
         var failed = adapter.decode(mapper, "", """
             {"type":"response.failed","response":{"error":{"code":"invalid_request_error",
