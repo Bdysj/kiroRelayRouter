@@ -3,6 +3,7 @@ package cn.app.kiroproxy.protocol;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -10,6 +11,45 @@ import org.junit.jupiter.api.Test;
 class AnthropicMessagesAdapterTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final AnthropicMessagesAdapter adapter = new AnthropicMessagesAdapter();
+
+    @Test
+    void reasoningEffortUsesAnthropicOutputConfig() throws Exception {
+        ObjectNode canonical = (ObjectNode) mapper.readTree("""
+                {"model":"claude-opus-4-6","reasoning_effort":"max",
+                 "messages":[{"role":"user","content":"Hello"}]}
+                """);
+
+        ObjectNode encoded = adapter.encode(mapper, canonical);
+
+        assertThat(encoded.path("output_config").path("effort").asText()).isEqualTo("max");
+        assertThat(encoded.has("effort")).isFalse();
+        assertThat(encoded.has("thinking")).isFalse();
+    }
+
+    @Test
+    void effortAndStructuredOutputFormatAreBothPreserved() throws Exception {
+        ObjectNode canonical = (ObjectNode) mapper.readTree("""
+                {"model":"claude-opus-4-6","reasoning_effort":"high",
+                 "_anthropic_output_format":{"type":"json_schema","schema":{"type":"object"}},
+                 "messages":[{"role":"user","content":"Hello"}]}
+                """);
+
+        ObjectNode encoded = adapter.encode(mapper, canonical);
+
+        assertThat(encoded.path("output_config").path("effort").asText()).isEqualTo("high");
+        assertThat(encoded.path("output_config").path("format"))
+                .isEqualTo(canonical.path("_anthropic_output_format"));
+        assertThat(encoded.path("output_config").size()).isEqualTo(2);
+    }
+
+    @Test
+    void unspecifiedEffortDoesNotAddOutputConfig() throws Exception {
+        ObjectNode canonical = (ObjectNode) mapper.readTree("""
+                {"model":"claude-opus-4-6","messages":[{"role":"user","content":"Hello"}]}
+                """);
+
+        assertThat(adapter.encode(mapper, canonical).has("output_config")).isFalse();
+    }
 
     @Test
     void emptyToolInputInitializerIsNotMistakenForArgumentsSnapshot() throws Exception {
