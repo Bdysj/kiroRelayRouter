@@ -1079,7 +1079,7 @@ public class RelayProxyService implements DisposableBean {
                     if (event.text() == null || event.text().isEmpty()) break;
                     state.sawReasoning = true;
                     state.markFirstOutput();
-                    output.write(KiroProtocol.event(mapper, "reasoningContentEvent", Map.of("content", event.text())));
+                    output.write(KiroProtocol.event(mapper, "reasoningContentEvent", Map.of("text", event.text())));
                 }
                 case TOOL_START -> {
                     ToolState tool = state.toolFor(event.index(), event.id(), event.itemId());

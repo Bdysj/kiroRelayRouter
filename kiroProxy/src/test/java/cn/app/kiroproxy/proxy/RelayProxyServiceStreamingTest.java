@@ -30,6 +30,44 @@ class RelayProxyServiceStreamingTest {
     }
 
     @Test
+    void reasoningDeltaUsesKiroTextField() throws Exception {
+        startServer(exchange -> {
+            beginSse(exchange);
+            try (var output = exchange.getResponseBody()) {
+                writeEvent(output, "{\"choices\":[{\"delta\":{\"reasoning_content\":\"summary delta\"}}]}");
+                writeEvent(output, "{\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}");
+                writeEvent(output, "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}");
+                writeEvent(output, "[DONE]");
+            }
+        });
+        service = new RelayProxyService(null, mapper, Duration.ofSeconds(1), Duration.ofSeconds(1));
+
+        ByteArrayOutputStream response = new ByteArrayOutputStream();
+        service.streamChat(requestBody(), configuration(), response, "reasoning-stream");
+
+        var frames = java.nio.ByteBuffer.wrap(response.toByteArray());
+        boolean found = false;
+        while (frames.hasRemaining()) {
+            int start = frames.position();
+            int length = frames.getInt();
+            int headerLength = frames.getInt();
+            frames.getInt();
+            byte[] headers = new byte[headerLength];
+            frames.get(headers);
+            byte[] payload = new byte[length - headerLength - 16];
+            frames.get(payload);
+            frames.position(start + length);
+            if (new String(headers, StandardCharsets.UTF_8).contains("reasoningContentEvent")) {
+                var event = mapper.readTree(payload);
+                assertThat(event.path("text").asText()).isEqualTo("summary delta");
+                assertThat(event.has("content")).isFalse();
+                found = true;
+            }
+        }
+        assertThat(found).isTrue();
+    }
+
+    @Test
     void activeSseMayRunLongerThanConfiguredIdleTimeout() throws Exception {
         startServer(exchange -> {
             beginSse(exchange);
